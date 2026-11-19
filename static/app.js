@@ -458,28 +458,48 @@ async function loadAdminRatings(quiet=false){
 function renderAdminRatings(){
  const root=$('#admin-ratings');if(!root)return;
  const data=adminRatingData;
- if(!data){root.innerHTML='<section class="admin-config rating-management"><h3>Gerenciar ratings</h3><button type="button" class="btn slim" data-reload-ratings="true">Carregar ratings</button></section>';return}
- const signature=JSON.stringify({players:data.players,editor:ratingEditorId,category:data.category});
+ if(!data){root.innerHTML='<section class="admin-config participant-management"><h3>Gerenciar inscrições e ratings</h3><button type="button" class="btn slim" data-reload-ratings="true">Carregar inscritos</button></section>';return}
+ const players=data.players||[];
+ const signature=JSON.stringify({players,editor:ratingEditorId,category:data.category,status:site.status});
  if(root.dataset.signature===signature)return;
  root.dataset.signature=signature;
- const categories=[['classical','Clássico'],['rapid','Rápido'],['blitz','Blitz']];
- const players=data.players||[];
+ const cats=[['classical','Clássico'],['rapid','Rápido'],['blitz','Blitz']];
  const labels={manual:'Manual',lichess:'Lichess',none:'Sem rating'};
+ const names={classical:'Clássico',rapid:'Rápido',blitz:'Blitz',bullet:'Bullet',ultraBullet:'UltraBullet'};
  const cards=players.map(p=>{
-  const stat=p.verified===1?'Consultado':p.verified===-1?'Nick não confirmado':'Consulta pendente';
-  const values=categories.map(([key,label])=>{
-   const entry=p.ratings[key]||{},source=labels[entry.source]||'Sem rating';
-   return '<span class="rating-manager-value"><small>'+label+'</small><strong>'+(entry.rating==null?'s/r':entry.rating+(entry.provisional?'?':''))+'</strong><small>'+source+'</small></span>';
-  }).join('');
-  let form='';
-  if(ratingEditorId===p.id){
-   const fields=categories.map(([key,label])=>'<label class="rating-manager-field"><span>'+label+'</span><input type="number" min="400" max="3500" step="1" inputmode="numeric" name="'+key+'" placeholder="Deixar automático" value="'+(p.manual[key]??'')+'"/></label>').join('');
-   form='<form class="rating-manager-editor" data-rating-player="'+p.id+'"><p><strong>Definir ratings para @'+esc(p.nick)+'</strong></p><div class="rating-manager-fields">'+fields+'</div><p class="rating-manager-help">Somente valores preenchidos substituem o Lichess. Deixe um campo vazio para remover o ajuste manual e voltar a usar o rating oficial, quando existir.</p><div class="rating-manager-editor-actions"><button class="btn primary slim" type="submit">Salvar ratings</button><button class="btn slim" type="button" data-cancel-rating="true">Cancelar</button></div></form>';
+  const expanded=ratingEditorId===p.id;
+  const main=p.ratings[data.category]||{};
+  const status=p.verified===1?'Lichess consultado':p.verified===-1?'Nick não confirmado':'Rating pendente';
+  const badge=p.verified===1?'rating-state-ok':p.verified===-1?'rating-state-error':'rating-state-pending';
+  let details='';
+  if(expanded){
+   const values=cats.map(([key,label])=>{
+    const item=p.ratings[key]||{};
+    return '<div class="rating-manager-value"><small>'+label+'</small><strong>'+(item.rating==null?'s/r':item.rating+(item.provisional?'?':''))+'</strong><small>'+labels[item.source||'none']+'</small></div>';
+   }).join('');
+   const fields=cats.map(([key,label])=>
+    '<label class="rating-manager-field"><span>'+label+'</span><input type="number" min="400" max="3500" step="1" inputmode="numeric" name="'+key+'" placeholder="Sem ajuste manual" value="'+(p.manual[key]??'')+'"/></label>'
+   ).join('');
+   const idForm='<form class="participant-identity-form" data-player-identity="'+p.id+'"><h4>Corrigir cadastro</h4><div class="participant-identity-fields"><label><span>Nome</span><input type="text" name="name" maxlength="70" minlength="2" required value="'+esc(p.name)+'" autocomplete="off"/></label><label><span>Nick do Lichess</span><input type="text" name="nick" maxlength="30" minlength="2" required value="'+esc(p.nick)+'" autocapitalize="none" spellcheck="false" autocomplete="off"/></label></div><p class="rating-manager-help">Ao trocar o nick por outra conta, os ratings antigos são limpos para evitar confusão. Os confrontos e links já registrados serão preservados.</p><button type="submit" class="btn primary slim">Salvar nome e nick</button></form>';
+   const ratingForm='<form class="rating-manager-editor" data-rating-player="'+p.id+'"><h4>Corrigir ratings (opcional)</h4><div class="rating-manager-fields">'+fields+'</div><p class="rating-manager-help">Campos vazios usam o rating oficial, quando disponível. Preencha apenas ajustes manuais.</p><div class="rating-manager-editor-actions"><button class="btn primary slim" type="submit">Salvar ratings</button><button class="btn slim" type="button" data-refresh-rating="'+p.id+'">Consultar no Lichess</button></div></form>';
+   const deletion=site.status==='registration'?'<button class="participant-remove" type="button" data-delete-player="'+p.id+'">Remover inscrição</button>':'<p class="participant-remove-note">Após o início do torneio, use a desclassificação para preservar os resultados.</p>';
+   details='<div class="participant-editor" id="participant-detail-'+p.id+'"><div class="participant-ratings-summary">'+values+'</div>'+idForm+ratingForm+'<div class="participant-editor-footer">'+deletion+'</div></div>';
   }
-  return '<article class="rating-manager-card"><div class="rating-manager-person"><div><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></div><span class="rating-manager-state '+(p.verified===1?'rating-state-ok':p.verified===-1?'rating-state-error':'rating-state-pending')+'">'+stat+'</span></div><div class="rating-manager-values">'+values+'</div><div class="rating-manager-buttons"><button type="button" class="btn slim" data-refresh-rating="'+p.id+'">Consultar no Lichess</button><button type="button" class="btn slim" data-edit-rating="'+p.id+'">Editar manualmente</button></div>'+form+'</article>';
+  const ratingText=main.rating==null?'s/r':main.rating+(main.provisional?'?':'');
+  return '<article class="participant-accordion'+(expanded?' is-open':'')+'">'+
+   '<button class="participant-accordion-trigger" type="button" data-toggle-player="'+p.id+'" aria-expanded="'+(expanded?'true':'false')+'" aria-controls="participant-detail-'+p.id+'">'+
+    '<span class="participant-initial" aria-hidden="true">'+esc(p.name.charAt(0).toUpperCase())+'</span>'+
+    '<span class="participant-overview"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></span>'+
+    '<span class="participant-overview-meta"><strong>'+ratingText+'</strong><small>'+esc(names[data.category]||data.category)+'</small></span>'+
+    '<span class="participant-status '+badge+'">'+status+'</span>'+
+    '<span class="participant-chevron" aria-hidden="true">'+(expanded?'⌃':'⌄')+'</span>'+
+   '</button>'+details+'</article>';
  }).join('');
- root.innerHTML='<section class="admin-config rating-management"><div class="admin-config-head"><div><h3>Gerenciar ratings dos inscritos</h3><p>O sistema tenta novamente os ratings pendentes quando o site recebe visitas. Você também pode consultar o Lichess agora ou registrar um rating manual para Clássico, Rápido e Blitz.</p><p class="rating-manager-help">Categoria da edição: <strong>'+esc(({'classical':'Clássico','rapid':'Rápido','blitz':'Blitz','bullet':'Bullet','ultraBullet':'UltraBullet'})[data.category]||data.category)+'</strong>. Apenas o rating desta modalidade é divulgado no chaveamento, nunca na lista pública de inscritos.</p></div></div><div class="rating-manager-toolbar"><span>'+players.length+' inscrito(s)</span><button type="button" data-reload-ratings="true">Atualizar lista</button></div><div class="rating-manager-list">'+(cards||'<p class="admin-help">Ainda não existem jogadores inscritos.</p>')+'</div></section>';
+ root.innerHTML='<section class="admin-config rating-management participant-management"><div class="admin-config-head"><div><h3>Gerenciar inscrições e ratings</h3><p>Toque no jogador para expandir o cadastro, corrigir nome e nick, consultar os ratings ou remover sua inscrição.</p></div></div>'+
+  '<div class="rating-manager-toolbar"><span><strong>'+players.length+'</strong> participante(s) · Rating de '+esc(names[data.category]||data.category)+'</span><button type="button" data-reload-ratings="true">Atualizar lista</button></div>'+
+  '<div class="participant-accordions">'+(cards||'<p class="admin-help">Ainda não há inscritos nesta edição.</p>')+'</div></section>';
 }
+
 async function retryRatingManually(id){
  try{
   const r=await api('/api/admin/players/'+id+'/refresh-ratings',{method:'POST'});
