@@ -30,16 +30,23 @@ async function refresh(quiet=false){
   render();
  }catch(e){if(!quiet)toast(e.message)}
 }
-function tab(name){
- $$('.content-tab').forEach(el=>el.classList.toggle('hidden',el.id!==`tab-${name}`));
- $$('.nav-btn').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
+function tab(name,scrollTarget=null){
+ $('.content-tab').forEach(el=>el.classList.toggle('hidden',el.id!==`tab-${name}`));
+ $('.nav-btn').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
  if(name==='admin'){
   if(archiveId){archiveId=0;refresh();}
   checkAdmin();
  }
  if(name==='chaves') renderBracket();
  if(name==='classificacao') renderRanking();
- window.scrollTo({top:0,behavior:'smooth'});
+ if(scrollTarget){
+  requestAnimationFrame(()=>{
+   const target=document.getElementById(scrollTarget);
+   if(target)target.scrollIntoView({behavior:'smooth',block:'start'});
+  });
+ }else{
+  window.scrollTo({top:0,behavior:'smooth'});
+ }
 }
 
 function ruleTokens(){
@@ -391,7 +398,7 @@ async function downloadBackup(){
  }catch(e){toast(e.message)}
 }
 // Navegação e controles globais
-$$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes','classificacao'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
+$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes','classificacao'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab,el.dataset.scrollTarget||null)}));
 $('#refresh-button').addEventListener('click',()=>refresh());
 $('#ranking-area').addEventListener('click',e=>{const b=e.target.closest('button[data-player-id]');if(b)openPlayerHistory(Number(b.dataset.playerId))});
 $('#bracket-area').addEventListener('click',e=>{
