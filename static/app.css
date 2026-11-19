@@ -364,3 +364,10 @@ body.modal-open{overflow:hidden}
  .participant-ratings-summary .rating-manager-value strong{font-size:13px}
  .participant-identity-form,.participant-editor .rating-manager-editor{padding:13px}
 }
+
+/* Diagnóstico da API do Lichess, somente no painel administrativo */
+.rating-api-warning{margin:12px 18px 0;padding:13px 15px;border-radius:11px;border:1px solid #e6d5ab;background:#fff8e8;display:flex;flex-direction:column;gap:6px;line-height:1.55}
+.rating-api-warning strong{font-size:12px;color:#896026}
+.rating-api-warning span{font-size:11px;color:#6f6654}
+.rating-sync-error{margin:0;padding:9px 11px;background:#fff9ed;border-left:3px solid #c5a16a;border-radius:5px}
+@media(max-width:640px){.rating-api-warning{margin:10px 12px 0;padding:11px}}
