@@ -6,6 +6,8 @@ let newEditionOpen = false;
 let preview = {pairs:[],byes:[]};
 let admin = false;
 let adminDisqualifications = [];
+let adminRatingData = null;
+let ratingEditorId = 0;
 let importCandidates = null;
 let importSourceId = 0;
 let importSelected = new Set();
@@ -32,6 +34,7 @@ async function refresh(quiet=false){
   const [next, history]=await Promise.all([api(archiveId?`/api/tournaments/${archiveId}`:'/api/state'), api('/api/tournaments')]);
   site=next;editions=history.tournaments||[];
   if(!archiveId&&site.status==='registration') preview=await api('/api/preview');
+  if(admin&&!archiveId)await loadAdminRatings(true);
   render();
  }catch(e){if(!quiet)toast(e.message)}
 }
@@ -336,7 +339,7 @@ function closePlayerHistory(){
 }
 
 async function checkAdmin(){
- try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin){await Promise.all([loadDisqualifications(),loadImportablePlayers()]);renderAdmin()}else adminDisqualifications=[];if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
+ try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin){await Promise.all([loadDisqualifications(),loadImportablePlayers(),loadAdminRatings()]);renderAdmin()}else adminDisqualifications=[];if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
 }
 function renderAdminColors(){
  const area=$('#admin-colors');if(!area)return;
@@ -446,6 +449,46 @@ function openArchiveDeletion(id){
  slot.querySelector('input').focus();
 }
 
+
+async function loadAdminRatings(quiet=false){
+ if(!admin){adminRatingData=null;return}
+ try{adminRatingData=await api('/api/admin/ratings')}
+ catch(error){if(!quiet)toast(error.message)}
+}
+function renderAdminRatings(){
+ const root=$('#admin-ratings');if(!root)return;
+ const data=adminRatingData;
+ if(!data){root.innerHTML='<section class="admin-config rating-management"><h3>Gerenciar ratings</h3><button type="button" class="btn slim" data-reload-ratings="true">Carregar ratings</button></section>';return}
+ const signature=JSON.stringify({players:data.players,editor:ratingEditorId,category:data.category});
+ if(root.dataset.signature===signature)return;
+ root.dataset.signature=signature;
+ const categories=[['classical','Clássico'],['rapid','Rápido'],['blitz','Blitz']];
+ const players=data.players||[];
+ const labels={manual:'Manual',lichess:'Lichess',none:'Sem rating'};
+ const cards=players.map(p=>{
+  const stat=p.verified===1?'Consultado':p.verified===-1?'Nick não confirmado':'Consulta pendente';
+  const values=categories.map(([key,label])=>{
+   const entry=p.ratings[key]||{},source=labels[entry.source]||'Sem rating';
+   return '<span class="rating-manager-value"><small>'+label+'</small><strong>'+(entry.rating==null?'s/r':entry.rating+(entry.provisional?'?':''))+'</strong><small>'+source+'</small></span>';
+  }).join('');
+  let form='';
+  if(ratingEditorId===p.id){
+   const fields=categories.map(([key,label])=>'<label class="rating-manager-field"><span>'+label+'</span><input type="number" min="400" max="3500" step="1" inputmode="numeric" name="'+key+'" placeholder="Deixar automático" value="'+(p.manual[key]??'')+'"/></label>').join('');
+   form='<form class="rating-manager-editor" data-rating-player="'+p.id+'"><p><strong>Definir ratings para @'+esc(p.nick)+'</strong></p><div class="rating-manager-fields">'+fields+'</div><p class="rating-manager-help">Somente valores preenchidos substituem o Lichess. Deixe um campo vazio para remover o ajuste manual e voltar a usar o rating oficial, quando existir.</p><div class="rating-manager-editor-actions"><button class="btn primary slim" type="submit">Salvar ratings</button><button class="btn slim" type="button" data-cancel-rating="true">Cancelar</button></div></form>';
+  }
+  return '<article class="rating-manager-card"><div class="rating-manager-person"><div><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></div><span class="rating-manager-state '+(p.verified===1?'rating-state-ok':p.verified===-1?'rating-state-error':'rating-state-pending')+'">'+stat+'</span></div><div class="rating-manager-values">'+values+'</div><div class="rating-manager-buttons"><button type="button" class="btn slim" data-refresh-rating="'+p.id+'">Consultar no Lichess</button><button type="button" class="btn slim" data-edit-rating="'+p.id+'">Editar manualmente</button></div>'+form+'</article>';
+ }).join('');
+ root.innerHTML='<section class="admin-config rating-management"><div class="admin-config-head"><div><h3>Gerenciar ratings dos inscritos</h3><p>O sistema tenta novamente os ratings pendentes quando o site recebe visitas. Você também pode consultar o Lichess agora ou registrar um rating manual para Clássico, Rápido e Blitz.</p><p class="rating-manager-help">Categoria da edição: <strong>'+esc(({'classical':'Clássico','rapid':'Rápido','blitz':'Blitz','bullet':'Bullet','ultraBullet':'UltraBullet'})[data.category]||data.category)+'</strong>. Apenas o rating desta modalidade é divulgado no chaveamento, nunca na lista pública de inscritos.</p></div></div><div class="rating-manager-toolbar"><span>'+players.length+' inscrito(s)</span><button type="button" data-reload-ratings="true">Atualizar lista</button></div><div class="rating-manager-list">'+(cards||'<p class="admin-help">Ainda não existem jogadores inscritos.</p>')+'</div></section>';
+}
+async function retryRatingManually(id){
+ try{
+  const r=await api('/api/admin/players/'+id+'/refresh-ratings',{method:'POST'});
+  toast(r.message||'Consulta concluída.');
+  await loadAdminRatings(true);
+  await refresh();
+ }catch(error){toast(error.message)}
+}
+
 function renderAdmin(){
  if(!site||!admin)return;
  renderAdminSettings();
@@ -454,6 +497,7 @@ function renderAdmin(){
  renderAdminDisqualifications();
  renderAdminImport();
  renderAdminArchives();
+ renderAdminRatings();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
@@ -581,8 +625,8 @@ $('#signup-form').addEventListener('submit',async e=>{
  data.agreed_to_rules=agree.checked;
  btn.disabled=true;msg.className='form-message';msg.textContent='Conferindo usuário e rating…';
  try{
-  await api('/api/register',{method:'POST',body:JSON.stringify(data)});
-  msg.className='form-message success';msg.textContent='Inscrição confirmada! Seu aceite do regulamento foi registrado.';
+  const d=await api('/api/register',{method:'POST',body:JSON.stringify(data)});
+  msg.className='form-message success';msg.textContent=d.message||'Inscrição confirmada! Seu aceite do regulamento foi registrado.';
   form.reset();
   consentWarning();
   await refresh();
