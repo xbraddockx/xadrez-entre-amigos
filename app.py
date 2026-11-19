@@ -324,6 +324,7 @@ def pdata(p, t=None, include_private=False):
               'disqualified': bool(p.disqualified_at), 'disqualified_round': p.disqualified_round}
     if include_private:
         result['ratings_json'] = p.ratings_json
+        result['manual_ratings_json'] = p.manual_ratings_json
         if p.disqualified_at:
             result['disqualified_at'] = iso(p.disqualified_at)
             result['disqualification_reason'] = p.disqualification_reason
@@ -457,7 +458,7 @@ def apply_lichess_ratings(player, profile, tournament):
     player.ratings_synced_at = datetime.now(timezone.utc)
     player.rating_official = (perfs.get('rapid') or {}).get('rating')
     speed = speed_for_clock(tournament.minutes, tournament.increment)
-    entry = (perfs.get(speed) or {})
+    entry = stored_ratings(player).get(speed) or {}
     player.rating = entry.get('rating') or 1500
     player.provisional = int(bool(entry.get('prov', False)))
 
@@ -1153,14 +1154,26 @@ def import_players(data: ImportPlayersIn, request: Request):
                 skipped.append(nick)
                 continue
             ratings = imported_ratings(record, snapshot.get('settings') or {})
+            saved_manual = record.get('manual_ratings_json')
+            try:
+                saved_manual = json.loads(saved_manual) if isinstance(saved_manual, str) else (saved_manual or {})
+            except (ValueError, TypeError):
+                saved_manual = {}
+            if not isinstance(saved_manual, dict):
+                saved_manual = {}
+            saved_manual = {k: v for k, v in saved_manual.items()
+                            if k in SPEEDS and isinstance(v, int)
+                            and not isinstance(v, bool) and 400 <= v <= 3500}
             chosen = ratings.get(speed) or {}
             rapid = ratings.get('rapid') or {}
             player = Player(
                 name=name, nick=canonical, nick_key=canonical.casefold(),
                 rating_reported=1500, rating_official=rapid.get('rating'),
-                rating=chosen.get('rating') or 1500,
-                provisional=int(bool(chosen.get('prov'))), verified=int(bool(ratings)),
-                ratings_json=json.dumps(ratings, ensure_ascii=False))
+                rating=saved_manual.get(speed) or chosen.get('rating') or 1500,
+                provisional=0 if speed in saved_manual else int(bool(chosen.get('prov'))),
+                verified=int(bool(ratings)),
+                ratings_json=json.dumps(ratings, ensure_ascii=False) if ratings else None,
+                manual_ratings_json=json.dumps(saved_manual) if saved_manual else None)
             db.add(player)
             existing.add(key)
             imported.append(canonical)
