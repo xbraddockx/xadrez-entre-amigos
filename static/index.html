@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1a28" />
+  <meta name="description" content="Inscrições, sorteio por rating e resultados da Copa Mata-Mata de Xadrez Entre Amigos." />
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+  <link rel="stylesheet" href="/static/app.css" />
+  <title>Copa Mata-Mata | Xadrez Entre Amigos</title>
+</head>
+<body>
+  <div class="ambient ambient-a" aria-hidden="true"></div>
+  <div class="ambient ambient-b" aria-hidden="true"></div>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Xadrez Entre Amigos, início"><span class="brand-icon">♞</span><span><strong>XADREZ</strong><small>ENTRE AMIGOS</small></span></a>
+    <nav aria-label="Navegação principal">
+      <button class="nav-btn active" data-tab="inscricoes">Inscrições</button>
+      <button class="nav-btn" data-tab="chaves">Chaveamento</button>
+      <button class="nav-btn" data-tab="regras">Regulamento</button>
+      <button class="nav-btn admin-nav" data-tab="admin">Área do organizador <span>↗</span></button>
+    </nav>
+  </header>
+
+  <main class="shell">
+    <section class="hero" aria-label="Apresentação do torneio">
+      <div class="hero-content">
+        <div class="eyebrow"><span class="pulse"></span> TORNEIO ONLINE • LICHESS</div>
+        <h1>O próximo lance<br/>pode ser <em>seu.</em></h1>
+        <p class="hero-desc">Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título com tempo para combinar cada confronto.</p>
+        <div class="hero-pills"><span>♟ &nbsp; Mata-mata</span><span>◷ &nbsp; 10+0</span><span>▦ &nbsp; 5 dias por rodada</span></div>
+        <div class="hero-actions"><button class="btn primary" data-tab="inscricoes">Quero participar <span>↗</span></button><button class="btn ghost" data-tab="chaves">Ver confrontos <span>→</span></button></div>
+      </div>
+      <div class="hero-art" aria-hidden="true">
+        <div class="chess-ring ring-one"></div><div class="chess-ring ring-two"></div>
+        <div class="art-piece">♚</div>
+        <div class="art-caption">SOMENTE UM<br/><strong>CAMPEÃO.</strong></div>
+        <div class="board-decoration"></div>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="Situação do torneio">
+      <div class="stat"><span class="stat-label">JOGADORES INSCRITOS</span><strong id="stat-players">0</strong></div>
+      <div class="stat"><span class="stat-label">FASE ATUAL</span><strong id="stat-phase" class="stat-small">Inscrições</strong></div>
+      <div class="stat"><span class="stat-label">PRAZO DA RODADA</span><strong id="stat-time" class="stat-small">5 dias</strong></div>
+      <div class="stat stat-last"><span class="stat-label">STATUS</span><span id="status-pill" class="status-pill"><span class="pulse"></span> Inscrições abertas</span></div>
+    </section>
+
+    <div class="content-tab" id="tab-inscricoes">
+      <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Preencha seus dados. O rating do Lichess na modalidade Rapid será priorizado quando disponível.</p></div></div>
+      <div class="entry-grid">
+        <section class="panel form-panel" aria-labelledby="form-title">
+          <div class="panel-heading"><div class="panel-number">01</div><div><h3 id="form-title">Inscrição do jogador</h3><p>Gratuita e aberta a todos os níveis.</p></div></div>
+          <form id="signup-form" autocomplete="on">
+            <label for="signup-name">Seu nome</label><input id="signup-name" name="name" required minlength="2" maxlength="70" placeholder="Ex.: João Silva" />
+            <label for="signup-nick">Usuário do Lichess</label><div class="input-prefix"><span>@</span><input id="signup-nick" name="nick" required minlength="2" maxlength="30" placeholder="seu_nick" spellcheck="false" /></div>
+            <label for="signup-rating">Seu rating Rapid (aproximado)</label><input id="signup-rating" name="rating" required type="number" inputmode="numeric" min="400" max="3500" placeholder="Ex.: 1600" />
+            <div class="input-hint">Usamos o rating Rapid público do Lichess, se disponível. O rating informado é usado quando a consulta não for possível. Ao se inscrever, você concorda que nome, nick e rating apareçam publicamente no torneio.</div>
+            <button class="btn primary submit" id="signup-submit" type="submit">Confirmar inscrição <span>↗</span></button>
+            <div id="signup-message" class="form-message" role="status" aria-live="polite"></div>
+          </form>
+          <div class="form-foot">♙ &nbsp; As inscrições são encerradas pelo organizador antes do sorteio oficial.</div>
+        </section>
+        <section class="panel participants-panel" aria-labelledby="players-title">
+          <div class="panel-heading top-split"><div class="heading-inline"><div class="panel-number">02</div><div><h3 id="players-title">Participantes</h3><p>Confira quem já está na disputa.</p></div></div><span id="player-counter" class="counter">0 jogadores</span></div>
+          <div class="player-list-head"><span>JOGADOR</span><span>RATING</span></div>
+          <div id="player-list" class="player-list"></div>
+          <div class="panel-bottom"><button class="text-button" data-tab="chaves">Visualizar possíveis confrontos <span>↗</span></button></div>
+        </section>
+      </div>
+    </div>
+
+    <div class="content-tab hidden" id="tab-chaves">
+      <div class="section-intro"><div><span class="mini-label">02 / CAMINHO ATÉ A FINAL</span><h2>A corrida pelo título.</h2><p id="bracket-subtitle">Durante as inscrições, o chaveamento é apenas uma prévia. O sorteio oficial acontece quando o organizador iniciar o torneio.</p></div><button id="refresh-button" class="btn slim ghost">↻ &nbsp; Atualizar</button></div>
+      <div id="bracket-area"></div>
+      <p class="subtle-note">Critério: sorteio com preferência por ratings próximos; em caso de quantidade irregular, algumas pessoas avançam por folga (bye). Cada nova rodada é organizada após os resultados da anterior.</p>
+    </div>
+
+    <div class="content-tab hidden" id="tab-regras">
+      <div class="section-intro"><div><span class="mini-label">03 / LEIA ANTES DE JOGAR</span><h2>Regulamento da copa.</h2><p>Regras objetivas para ninguém perder no relógio fora do tabuleiro.</p></div></div>
+      <section class="rules-grid">
+        <article class="rule"><span>01</span><h3>Formato</h3><p>Eliminatória simples. O vencedor avança e o perdedor é eliminado. Adversários definidos por sorteio com preferência por rating próximo.</p></article>
+        <article class="rule"><span>02</span><h3>Ritmo de jogo</h3><p>Uma partida de 10 minutos para cada jogador, sem incremento (10+0). Em caso de empate, jogam novamente em 10+0, alternando as cores, até haver um vencedor.</p></article>
+        <article class="rule"><span>03</span><h3>Prazo</h3><p>Cada rodada dura no máximo 5 dias corridos. Os adversários devem iniciar contato até o segundo dia e concluir a partida dentro do prazo divulgado.</p></article>
+        <article class="rule"><span>04</span><h3>W.O.</h3><p>Ausência após 15 minutos do horário combinado pode resultar em W.O. Sem partida e sem responsável identificável, ambos podem ser eliminados.</p></article>
+        <article class="rule"><span>05</span><h3>Resultados</h3><p>O vencedor envia o link da partida ao grupo. O organizador confirma o resultado, manualmente ou após consulta do histórico público do Lichess.</p></article>
+        <article class="rule"><span>06</span><h3>Jogo limpo</h3><p>Proibido utilizar motores de análise ou auxílio externo. Conflitos, recursos e casos omissos são resolvidos pela organização.</p></article>
+      </section>
+    </div>
+
+    <div class="content-tab hidden" id="tab-admin">
+      <div class="section-intro"><div><span class="mini-label">04 / GESTÃO DA COMPETIÇÃO</span><h2>Painel do organizador.</h2><p>Acesso reservado para controlar inscritos, rodadas e resultados.</p></div></div>
+      <section class="panel admin-login" id="admin-login-box"><div class="admin-lock">♜</div><h3>Acesso restrito</h3><p>Use a senha configurada no servidor.</p><form id="login-form"><label for="admin-password">Senha do administrador</label><input type="password" id="admin-password" name="password" required placeholder="Sua senha" autocomplete="current-password"/><button class="btn primary submit" type="submit">Entrar no painel <span>→</span></button><div class="form-message" id="login-message" role="status"></div></form></section>
+      <section class="hidden" id="admin-dashboard">
+        <div class="admin-toolbar"><strong>Controle do torneio</strong><button id="logout-button" class="btn slim ghost">Sair do painel</button></div>
+        <div id="admin-controls"></div>
+        <div id="admin-match-list"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer"><div class="brand footer-brand"><span class="brand-icon">♞</span><span><strong>XADREZ</strong><small>ENTRE AMIGOS</small></span></div><p>Um lance de cada vez. Que vença o melhor tabuleiro.</p><a href="https://lichess.org" target="_blank" rel="noopener noreferrer">Jogar no Lichess ↗</a></footer>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
