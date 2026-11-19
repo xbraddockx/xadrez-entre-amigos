@@ -125,27 +125,103 @@ function bracketCard(item, i, isPreview=false){
  const draw=!isPreview&&item.status==='draw_pending';
  return `<article class="match-card"><div class="match-top"><span>CONFRONTO ${i+1}</span><span class="${isPreview?'pending':item.status==='complete'?'complete':'pending'}">${status}</span></div><div class="versus">${playerLine(p1,winId===p1?.id)}</div><div class="versus">${bye?'<span class="bye-tag">Avança sem adversário</span>':playerLine(p2,winId===p2?.id)}</div>${!isPreview&&item.game_url?`<a class="game-link" href="${esc(item.game_url)}" target="_blank" rel="noopener noreferrer">Ver partida no Lichess ↗</a>`:''}${!isPreview&&draw?'<div class="game-link">Empate: é necessário desempate ${timeLabel()}</div>':''}</article>`;
 }
+
+function treeScore(match,id){
+ if(!match||match.status==='pending')return '—';
+ if(match.status==='bye')return match.winner===id?'↗':'—';
+ if(match.status==='draw_pending')return '1/2';
+ if(match.status==='double_wo')return '0';
+ return match.winner===id?'1':'0';
+}
+function treePlayer(p,match,ghost=false){
+ if(!p)return '<div class="tree-player tree-player-empty"><span class="tree-avatar">♙</span><span class="tree-player-meta"><strong>A definir</strong><small>Próxima fase</small></span></div>';
+ const win=match&&match.winner===p.id;
+ return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(rating(p))+'</small></span><span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></button>';
+}
+function treeMatch(match,index,isPreview=false){
+ const p1=nameFor(match?.p1),p2=nameFor(match?.p2);
+ const isBye=!isPreview&&match&&match.status==='bye';
+ const s=isPreview?'Prévia':!match?'A definir':({pending:'Aguardando',draw_pending:'Desempate',complete:'Concluído',wo:'W.O.',double_wo:'W.O. duplo',bye:'Folga'}[match.status]||'Aguardando');
+ let html='<article class="tree-match"><div class="tree-match-head"><span>CONFRONTO '+(index+1)+'</span><span class="tree-state '+((match?.status==='complete'||match?.status==='wo')?'state-won':'')+'">'+s+'</span></div>';
+ html+=treePlayer(p1,match,isPreview);
+ html+=isBye?'<div class="tree-player tree-player-empty"><span class="tree-avatar">↗</span><span class="tree-player-meta"><strong>Classificado por folga</strong><small>Sem adversário nesta rodada</small></span></div>':treePlayer(p2,match,isPreview);
+ if(match?.game_url)html+='<a class="tree-link" target="_blank" rel="noopener noreferrer" href="'+esc(match.game_url)+'">Abrir partida no Lichess ↗</a>';
+ if(match?.status==='draw_pending')html+='<div class="tree-link">Empate registrado · falta desempate</div>';
+ html+='</article>';return html;
+}
 function renderBracket(){
  if(!site)return;
- const area=$('#bracket-area');
- if(site.status==='registration'){
-  $('#bracket-subtitle').textContent='Prévia que muda conforme chegam os inscritos. O organizador fecha as inscrições antes do sorteio oficial.';
-  const rows=[...(preview.pairs||[]),...(preview.byes||[]).map(i=>[i,null])];
-  if(site.players.length<2){area.innerHTML='<div class="panel bracket-empty"><div class="empty"><span class="empty-mark">♜</span><strong>Aguardando inscrições</strong><p>Com pelo menos dois jogadores, o sistema mostrará os possíveis duelos.</p></div></div>';return}
-  area.innerHTML=`<div class="deadline-note"><span><strong>Sorteio provisório</strong> · Os confrontos serão confirmados apenas no início do torneio.</span><span>${site.players.length} inscritos</span></div><div class="round-heading"><h3>Prévia da 1ª rodada</h3><small>${preview.pairs.length} confrontos</small></div><div class="preview-match-grid">${rows.map((r,i)=>bracketCard(r,i,true)).join('')}</div>`;
-  return;
+ const area=$('#bracket-area'),isPreview=site.status==='registration',r=site.round||0;
+ const groups={};(site.matches||[]).forEach(m=>(groups[m.round]??=[]).push(m));
+ if(isPreview&&site.players.length<2){
+  area.innerHTML='<div class="panel bracket-empty"><div class="empty"><span class="empty-mark">♜</span><strong>Aguardando inscrições</strong><p>Os confrontos aparecerão a partir de dois jogadores.</p></div></div>';return;
  }
- $('#bracket-subtitle').textContent='Confrontos oficiais. Cada rodada só começa quando os resultados da anterior são confirmados.';
+ if(isPreview){
+  const pm=[...(preview.pairs||[]).map(([p1,p2])=>({p1,p2,status:'pending'})),...(preview.byes||[]).map(p1=>({p1,p2:null,status:'bye'}))];
+  groups[1]=pm;
+ }
+ const mainRounds=Math.max(1,Math.ceil(Math.log2(Math.max(2,site.players.length))));
+ const maxRounds=Math.max(mainRounds,...Object.keys(groups).map(Number));
+ const firstCount=Math.max(1,groups[1]?.length||Math.ceil(site.players.length/2));
+ const title=site.settings?.title||'Copa Mata-Mata';
+ const trophy='<img src="/static/trophy.svg" class="tree-trophy" alt="Troféu da final" loading="lazy"/>';
  let html='';
+ if(site.status==='active')html+='<div class="deadline-note"><span><strong>Rodada '+site.round+'</strong> · Contato até o '+(site.settings?.contact_day??2)+'º dia.</span><span><strong>Prazo final:</strong> '+esc(localDate(site.deadline))+'</span></div>';
+ if(isPreview)html+='<div class="deadline-note"><span><strong>Sorteio provisório.</strong> Os adversários podem mudar até o início do torneio.</span><span>'+site.players.length+' inscritos</span></div>';
  if(site.status==='finished'){
-  const champ=nameFor(site.champion_id);
-  html+=`<div class="champion"><div><small>CAMPEÃO DO TORNEIO</small><h3>${champ?esc(champ.name):'Sem campeão'}</h3><span>${champ?'@'+esc(champ.nick)+' · '+rating(champ)+' Rapid':'Todos os participantes foram eliminados por W.O.'}</span></div><span class="crown">♛</span></div>`;
+  const champion=nameFor(site.champion_id);
+  html+='<div class="champion"><div><small>CAMPEÃO DO TORNEIO</small><h3>'+esc(champion?.name||'Sem campeão')+'</h3><span>'+(champion?'@'+esc(champion.nick)+' · '+esc(rating(champion))+' Rapid':'Nenhum classificado na final')+'</span></div>'+trophy+'</div>';
  }
- if(site.status==='active')html+=`<div class="deadline-note"><span><strong>Rodada ${site.round}</strong> · Os adversários devem combinar a partida até o ${site.settings?.contact_day||2}º dia.</span><span><strong>Prazo final:</strong> ${localDate(site.deadline)}</span></div>`;
- const groups={};site.matches.forEach(m=>(groups[m.round]??=[]).push(m));
- html+='<div class="bracket-scroll"><div class="bracket-grid">'+Object.entries(groups).map(([round,matches])=>`<section class="round-col"><div class="round-heading"><h3>${Number(round)===1?'1ª':round+'ª'} rodada</h3><small>${matches.length} posições</small></div>${matches.map((m,i)=>bracketCard(m,i)).join('')}</section>`).join('')+'</div></div>';
+ html+='<div class="tree-intro"><span class="tree-legend"><i></i> Jogador classificado <span class="tree-legend-dot">•</span> Pontuação: 1 vitória · 1/2 empate · 0 derrota</span><span class="tree-legend">Toque em qualquer jogador para ver seu histórico.</span></div>';
+ html+='<div class="bracket-scroll tree-scroller" tabindex="0" aria-label="Chaveamento horizontal, role para ver as fases"><div class="tournament-tree">';
+ for(let round=1;round<=maxRounds;round++){
+  const played=groups[round]||[];
+  const available=played.length>0;
+  const items=available?played:Array.from({length:Math.max(1,Math.ceil(firstCount/Math.pow(2,round-1)))},()=>null);
+  const final=round===maxRounds;
+  html+='<section class="tree-round '+(final?'tree-final':'')+'"><div class="tree-round-header"><span>'+(final?'GRANDE FINAL':round+'ª RODADA')+'</span><strong>'+(final?'Decisão':available?played.length+' confrontos':'Classificados')+'</strong></div>';
+  if(final)html+='<div class="tree-trophy-box">'+trophy+'<span>'+ (site.status==='finished'?'TROFÉU DO CAMPEÃO':'UM ÚNICO CAMPEÃO')+'</span></div>';
+  html+='<div class="tree-round-content">'+items.map((m,i)=>treeMatch(m,i,isPreview&&round===1)).join('')+'</div>';
+  if(!final)html+='<span class="tree-flow-arrow" aria-hidden="true">→</span>';
+  html+='</section>';
+ }
+ html+='</div></div><p class="tree-mobile-tip">Arraste horizontalmente para acompanhar as rodadas. Os confrontos das próximas fases serão sorteados entre os classificados, priorizando ratings próximos.</p>';
  area.innerHTML=html;
+ $('#bracket-subtitle').textContent=isPreview?'Prévia atualizada com os inscritos. A chave oficial começa após o encerramento das inscrições.':'Chaveamento e resultados atualizados conforme a organização registra as partidas.';
 }
+function scoreForGame(game,match,id){
+ if(game.outcome==='draw')return '1/2';
+ if(game.outcome==='p1')return match.p1===id?'1':'0';
+ if(game.outcome==='p2')return match.p2===id?'1':'0';
+ return '—';
+}
+function openPlayerHistory(playerId){
+ const p=nameFor(playerId);if(!p)return;
+ const history=[];
+ for(const match of (site.matches||[])){
+  if(match.p1!==p.id&&match.p2!==p.id)continue;
+  const rival=nameFor(match.p1===p.id?match.p2:match.p1);
+  const games=(site.games||[]).filter(g=>g.match_id===match.id);
+  if(games.length){
+   games.forEach((g,i)=>history.push({round:match.round,index:i,score:scoreForGame(g,match,p.id),name:i?'Desempate':'Partida',rival,url:g.game_url||''}));
+  }else{
+   let value='—',label='Aguardando partida';
+   if(match.status==='bye')label='Folga · classificado sem jogar';
+   else if(match.status==='wo'||match.status==='double_wo'){label=match.status==='wo'?'W.O.':'W.O. duplo';value=match.winner===p.id?'1':'0'}
+   else if(match.status==='draw_pending'){label='Empate';value='1/2'}
+   else if(match.status==='complete'){label='Resultado registrado';value=match.winner===p.id?'1':'0'}
+   history.push({round:match.round,index:0,score:value,name:label,rival,url:match.game_url||''});
+  }
+ }
+ history.sort((a,b)=>b.round-a.round||b.index-a.index);
+ const rows=history.map(h=>'<div class="history-row"><span class="history-score '+(h.score==='1'?'history-win':h.score==='0'?'history-loss':'history-draw')+'">'+h.score+'</span><div class="history-row-detail"><strong>Rodada '+h.round+' · '+esc(h.name)+'</strong><small>'+esc(h.rival?'vs '+h.rival.name+' (@'+h.rival.nick+')':'sem adversário')+'</small></div>'+(h.url?'<a href="'+esc(h.url)+'" target="_blank" rel="noopener noreferrer" class="history-open">Ver no Lichess ↗</a>':'<span class="history-no-link">Sem link</span>')+'</div>').join('');
+ $('#player-dialog-content').innerHTML='<span class="mini-label">HISTÓRICO DE PARTIDAS</span><h3 id="player-dialog-title">'+esc(p.name)+'</h3><p class="player-dialog-info"><a href="'+profile(p)+'" target="_blank" rel="noopener noreferrer">@'+esc(p.nick)+' ↗</a> · '+esc(rating(p))+' Rapid</p><p class="history-intro">Pontuação por partida: <strong>1</strong> vitória, <strong>1/2</strong> empate, <strong>0</strong> derrota. W.O. e folgas são identificados separadamente.</p><div class="history-list">'+(rows||'<div class="empty">O jogador ainda não possui confrontos nesta edição.</div>')+'</div>';
+ const modal=$('#player-dialog');modal.classList.remove('hidden');document.body.classList.add('modal-open');$('#player-dialog-close').focus();
+}
+function closePlayerHistory(){
+ $('#player-dialog').classList.add('hidden');document.body.classList.remove('modal-open');
+}
+
 async function checkAdmin(){
  try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin)renderAdmin();if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
 }
@@ -236,6 +312,13 @@ async function downloadBackup(){
 // Navegação e controles globais
 $$('[data-tab]').forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
 $('#refresh-button').addEventListener('click',()=>refresh());
+$('#bracket-area').addEventListener('click',e=>{
+ const node=e.target.closest('button[data-player-id]');
+ if(node)openPlayerHistory(Number(node.dataset.playerId));
+});
+$('#player-dialog').addEventListener('click',e=>{if(e.target.closest('[data-close-player]'))closePlayerHistory()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#player-dialog').classList.contains('hidden'))closePlayerHistory()});
+
 $('#tournament-selector').addEventListener('change', async e=>{archiveId=Number(e.target.value);preview={pairs:[],byes:[]};await refresh();tab('chaves');});
 $('#signup-form').addEventListener('submit',async e=>{
  e.preventDefault();const form=e.currentTarget,btn=$('#signup-submit'),msg=$('#signup-message');
