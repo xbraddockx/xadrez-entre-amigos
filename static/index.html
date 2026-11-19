@@ -82,13 +82,14 @@
 
     <div class="content-tab hidden" id="tab-regras">
       <div class="section-intro"><div><span class="mini-label">03 / LEIA ANTES DE JOGAR</span><h2>Regulamento da copa.</h2><p>Regras objetivas para ninguém perder no relógio fora do tabuleiro.</p></div></div>
-      <section class="rules-grid">
-        <article class="rule"><span>01</span><h3>Formato</h3><p>Eliminatória simples. O vencedor avança e o perdedor é eliminado. Adversários definidos por sorteio com preferência por rating próximo.</p></article>
-        <article class="rule"><span>02</span><h3>Ritmo de jogo</h3><p id="rule-time">Uma partida de 10 minutos para cada jogador, sem incremento (10+0). Em caso de empate, jogam novamente no mesmo ritmo, alternando as cores, até haver um vencedor.</p></article>
-        <article class="rule"><span>03</span><h3>Prazo</h3><p id="rule-deadline">Cada rodada dura no máximo 5 dias corridos. Os adversários devem iniciar contato até o segundo dia e concluir a partida dentro do prazo divulgado.</p></article>
-        <article class="rule"><span>04</span><h3>W.O.</h3><p id="rule-wo">Ausência após 15 minutos do horário combinado pode resultar em W.O. Sem partida e sem responsável identificável, ambos podem ser eliminados.</p></article>
-        <article class="rule"><span>05</span><h3>Resultados</h3><p>O vencedor envia o link da partida ao grupo. O organizador confirma o resultado, manualmente ou após consulta do histórico público do Lichess.</p></article>
-        <article class="rule"><span>06</span><h3>Jogo limpo</h3><p>Proibido utilizar motores de análise ou auxílio externo. Conflitos, recursos e casos omissos são resolvidos pela organização.</p></article>
+      <section class="regulation-paper panel" aria-label="Regulamento integral da edição">
+        <header class="regulation-header">
+          <span class="mini-label">REGULAMENTO OFICIAL</span>
+          <h3 id="regulation-name">Regulamento do Torneio Mata-Mata de Xadrez</h3>
+          <p><strong>Plataforma:</strong> Lichess.org <span aria-hidden="true">•</span> <strong>Formato:</strong> Eliminatória simples (mata-mata)</p>
+          <p class="regulation-info">Este regulamento acompanha automaticamente os dados desta edição. A organização pode ajustar as regras no painel administrativo.</p>
+        </header>
+        <div id="regulation-body" class="regulation-body"></div>
       </section>
     </div>
 
@@ -98,6 +99,7 @@
       <section class="hidden" id="admin-dashboard">
         <div class="admin-toolbar"><strong>Controle do torneio</strong><button id="logout-button" class="btn slim ghost">Sair do painel</button></div>
         <div id="admin-settings"></div>
+        <div id="admin-regulation"></div>
         <div id="admin-create"></div>
         <div class="admin-export"><span>Backup de segurança: salve uma cópia dos torneios e resultados no seu computador.</span><button id="download-backup" class="btn slim backup">Baixar histórico em JSON ↓</button></div>
         <div id="admin-controls"></div>
@@ -107,6 +109,13 @@
   </main>
 
   <footer class="footer"><div class="brand footer-brand"><span class="brand-icon">♞</span><span><strong>XADREZ</strong><small>ENTRE AMIGOS</small></span></div><p>Um lance de cada vez. Que vença o melhor tabuleiro.</p><a href="https://lichess.org" target="_blank" rel="noopener noreferrer">Jogar no Lichess ↗</a></footer>
+  <div id="player-dialog" class="player-modal hidden" role="dialog" aria-modal="true" aria-labelledby="player-dialog-title">
+    <div class="player-modal-backdrop" data-close-player></div>
+    <div class="player-modal-panel panel" tabindex="-1">
+      <button id="player-dialog-close" type="button" aria-label="Fechar histórico" class="player-modal-close" data-close-player>×</button>
+      <div id="player-dialog-content"></div>
+    </div>
+  </div>
   <div id="toast" role="status" aria-live="polite"></div>
   <script src="/static/app.js" defer></script>
 </body>
