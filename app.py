@@ -102,6 +102,7 @@ class Player(Base):
     rating: Mapped[int] = mapped_column(Integer, nullable=False)
     provisional: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[int] = mapped_column(Integer, default=0)
+    ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -168,6 +169,9 @@ with engine.begin() as conn:
 # Migração não destrutiva: os torneios existentes permanecem intactos.
 # No primeiro deploy após esta versão, acrescenta apenas as novas colunas.
 with engine.begin() as conn:
+    player_columns = {col['name'] for col in inspect(conn).get_columns('players')}
+    if 'ratings_json' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN ratings_json TEXT'))
     existing = {col['name'] for col in inspect(conn).get_columns('tournaments')}
     columns = {
         'title': "VARCHAR(120) NOT NULL DEFAULT 'Copa Mata-Mata | Xadrez Entre Amigos'",
@@ -202,12 +206,80 @@ def iso(d):
     return utc(d).isoformat().replace('+00:00', 'Z') if d else None
 
 
-def pdata(p):
-    return {
-        "id": p.id, "name": p.name, "nick": p.nick, "rating": p.rating,
-        "rating_reported": p.rating_reported, "rating_official": p.rating_official,
-        "provisional": bool(p.provisional), "verified": bool(p.verified),
-    }
+SPEEDS = ('ultraBullet', 'bullet', 'blitz', 'rapid', 'classical')
+SPEED_LABELS = {'ultraBullet': 'UltraBullet', 'bullet': 'Bullet',
+                'blitz': 'Blitz', 'rapid': 'Rapid', 'classical': 'Classical'}
+
+
+def speed_for_clock(minutes, increment):
+    """Cálculo oficial: tempo inicial (segundos) + 40 × incremento."""
+    seconds = int(minutes) * 60 + int(increment) * 40
+    if seconds < 30:
+        return 'ultraBullet'
+    if seconds < 180:
+        return 'bullet'
+    if seconds < 480:
+        return 'blitz'
+    if seconds < 1500:
+        return 'rapid'
+    return 'classical'
+
+
+def stored_ratings(p):
+    try:
+        parsed = json.loads(p.ratings_json or '{}')
+        if isinstance(parsed, dict):
+            return parsed
+    except (ValueError, TypeError):
+        pass
+    # Legado: antes da atualização, só existia rating Rapid oficial.
+    if p.ratings_json is None and p.rating_official is not None:
+        return {'rapid': {'rating': p.rating_official, 'prov': bool(p.provisional)}}
+    return {}
+
+
+def effective_rating(p, speed):
+    entry = stored_ratings(p).get(speed) or {}
+    val = entry.get('rating')
+    return val if isinstance(val, int) and not isinstance(val, bool) and val > 0 else None
+
+
+def pairing_rating(p, speed):
+    """Tenta modalidade exata; usa proxy de modalidade vizinha apenas internamente."""
+    exact = effective_rating(p, speed)
+    if exact is not None:
+        return exact
+    rank = SPEEDS.index(speed)
+    for alternative in sorted((x for x in SPEEDS if x != speed), key=lambda x: abs(SPEEDS.index(x) - rank)):
+        fallback = effective_rating(p, alternative)
+        if fallback is not None:
+            return fallback
+    return 1500
+
+
+def ratings_from_lichess(profile):
+    perfs = profile.get('perfs') or {}
+    result = {}
+    for speed in SPEEDS:
+        item = perfs.get(speed) or {}
+        val = item.get('rating')
+        games = item.get('games')
+        if isinstance(val, int) and not isinstance(val, bool) and 400 <= val <= 3500 and (games is None or games > 0):
+            result[speed] = {'rating': val, 'prov': bool(item.get('prov', False)),
+                             'games': games if isinstance(games, int) else None}
+    return result
+
+
+def pdata(p, t=None):
+    # Público recebe só o rating da categoria atual, nunca as outras modalidades
+    # ou o rating auxiliar privado usado no sorteio de pares.
+    result = {'id': p.id, 'name': p.name, 'nick': p.nick}
+    if t is not None:
+        speed = speed_for_clock(t.minutes, t.increment)
+        selected = stored_ratings(p).get(speed) or {}
+        result['rating'] = effective_rating(p, speed)
+        result['provisional'] = bool(selected.get('prov', False))
+    return result
 
 
 def mdata(m):
@@ -266,7 +338,7 @@ def status_data(db):
     return {
         "status": t.status, "round": t.current_round, "started": iso(t.round_started),
         "deadline": iso(t.deadline), "champion_id": t.champion_id,
-        "players": [pdata(p) for p in players], "matches": [mdata(m) for m in matches],
+        "players": [pdata(p, t) for p in players], "matches": [mdata(m) for m in matches],
         "games": [game_data(g) for g in db.scalars(select(MatchGame).order_by(MatchGame.id)).all()],
         "admin_enabled": bool(ADMIN_PASSWORD),
         "settings": tournament_settings(t),
@@ -324,7 +396,7 @@ def get_public_user(nick: str):
         return None
 
 
-def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: random.Random):
+def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: random.Random, speed: str = 'rapid'):
     """Sorteia folgas e pares com preferência estatística por rating próximo."""
     n = len(players)
     if n < 2:
@@ -337,7 +409,7 @@ def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: rand
     candidates.sort(key=lambda p: previous_byes.get(p.id, 0))
     bye = candidates[:byes_number]
     waiting = candidates[byes_number:]
-    waiting.sort(key=lambda p: (p.rating, rng.random()))
+    waiting.sort(key=lambda p: (pairing_rating(p, speed), rng.random()))
     pairs = []
     # Dividir por blocos de rating e sortear entre pareamentos próximos do ótimo.
     # Evita o efeito dominó do sorteio guloso, que pode deixar os dois últimos
@@ -352,7 +424,7 @@ def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: rand
                 [(group[0], group[2]), (group[1], group[3])],
                 [(group[0], group[3]), (group[1], group[2])],
             ]
-            costs = [sum(abs(a.rating-b.rating) for a,b in matching) for matching in matchings]
+            costs = [sum(abs(pairing_rating(a, speed)-pairing_rating(b, speed)) for a,b in matching) for matching in matchings]
             minimum = min(costs)
             weights = [math.exp(-(cost-minimum)/100) for cost in costs]
             chosen = rng.choices(matchings, weights=weights, k=1)[0]
@@ -422,7 +494,7 @@ def add_round(db, t, advancing: list[Player]):
     t.round_started = datetime.now(timezone.utc)
     t.deadline = t.round_started + timedelta(days=t.round_days)
     rng = random.SystemRandom()
-    pairs, bye = choose_pairs(advancing, bye_counts(db), rng)
+    pairs, bye = choose_pairs(advancing, bye_counts(db), rng, speed_for_clock(t.minutes, t.increment))
     balances = color_balance(db)
     idx = 1
     for p1, p2 in pairs:
@@ -582,7 +654,7 @@ def preview():
             return {"pairs": [], "byes": []}
         # Mesmo conjunto de inscritos => prévia estável, mas cada nova inscrição muda a prévia.
         seed = int(hashlib.sha256((','.join(str(p.id) for p in players)+'preview').encode()).hexdigest()[:16], 16)
-        pairs, bye = choose_pairs(players, {}, random.Random(seed))
+        pairs, bye = choose_pairs(players, {}, random.Random(seed), speed_for_clock(t.minutes, t.increment))
         return {"pairs": [[a.id, b.id] for a, b in pairs], "byes": [p.id for p in bye]}
 
 
