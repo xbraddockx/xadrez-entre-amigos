@@ -433,34 +433,62 @@ def require_admin(req: Request):
     # Cookie de sessão SameSite=Strict e cabeçalho JSON obrigatório nas rotas mutáveis.
 
 
+def lichess_status():
+    """Diagnóstico interno, sem expor nomes nem dados de outros jogadores."""
+    with LICHESS_LOCK:
+        return {
+            'last_status': lichess_last_status,
+            'cooldown_seconds': max(0, int(lichess_cooldown_until - time.monotonic() + 0.999)),
+            'rate_limited': lichess_last_status == 429,
+        }
+
+
 def lichess_get(url, **kwargs):
-    """Respeita a recomendação do Lichess: uma chamada por vez e 1 min após HTTP 429."""
-    global lichess_cooldown_until
+    """Uma solicitação por vez, com recuo progressivo após HTTP 429."""
+    global lichess_cooldown_until, lichess_last_status, lichess_429_streak
     with LICHESS_LOCK:
         if time.monotonic() < lichess_cooldown_until:
             return None
-        response = HTTP.get(url, **kwargs)
+        try:
+            response = HTTP.get(url, **kwargs)
+        except requests.RequestException as error:
+            lichess_last_status = 'network'
+            logging.warning('Falha de rede na consulta ao Lichess: %s.', type(error).__name__)
+            return None
+        lichess_last_status = response.status_code
         if response.status_code == 429:
-            lichess_cooldown_until = time.monotonic() + 65
+            lichess_429_streak = min(lichess_429_streak + 1, 6)
+            retry_after = response.headers.get('Retry-After', '0')
+            try:
+                retry_seconds = max(0, int(retry_after))
+            except (ValueError, TypeError):
+                retry_seconds = 0
+            cooldown = min(3600, max(65, retry_seconds, 65 * (2 ** (lichess_429_streak - 1))))
+            lichess_cooldown_until = time.monotonic() + cooldown
+            logging.warning('Lichess limitou o acesso com HTTP 429. Próxima tentativa em %s segundos.', cooldown)
+        elif response.status_code == 200:
+            lichess_429_streak = 0
+            lichess_cooldown_until = 0
         return response
 
 
 def get_public_user(nick: str):
-    """None when Lichess is temporarily unreachable, 404 if user does not exist."""
-    try:
-        resp = lichess_get(f"https://lichess.org/api/user/{nick}", timeout=(3, 4))
-        if resp is None:
-            logging.info('Lichess em pausa por limite de requisições.')
-            return None
-        if resp.status_code == 404:
-            fail(400, "Esse usuário não existe no Lichess. Confira o nick.")
-        if resp.status_code != 200:
-            logging.warning('Consulta pública ao Lichess retornou HTTP %s.', resp.status_code)
-            return None
-        return resp.json()
-    except (requests.RequestException, ValueError) as error:
-        logging.warning('Falha na consulta do Lichess (%s).', type(error).__name__)
+    """None se a API falhar; 404 confirmado indica usuário não encontrado."""
+    response = lichess_get(f"https://lichess.org/api/user/{nick}", timeout=(3, 5),
+                           headers={'Accept': 'application/json'})
+    if response is None:
         return None
+    if response.status_code == 404:
+        fail(400, "Esse usuário não existe no Lichess. Confira o nick.")
+    if response.status_code != 200:
+        logging.warning('Consulta pública ao Lichess retornou HTTP %s.', response.status_code)
+        return None
+    try:
+        data = response.json()
+    except ValueError:
+        logging.warning('O Lichess retornou dados inválidos em vez do perfil JSON.')
+        return None
+    return data if isinstance(data, dict) and data.get('id') else None
 
 
 def apply_lichess_ratings(player, profile, tournament, origin='server'):
