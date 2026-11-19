@@ -210,3 +210,38 @@ body.modal-open{overflow:hidden}
  .disqualification-history{margin-left:14px;margin-right:14px}
  .import-person-status{font-size:9px}
 }
+
+
+/* Aceite do regulamento na inscrição */
+.form-panel .signup-consent{display:flex;align-items:flex-start;gap:11px;padding:14px 15px;margin:1px 0 0;border:1px solid #eadfca;border-radius:11px;background:#fdfaf5;transition:border-color .15s}
+.form-panel .signup-consent input[type="checkbox"]{appearance:auto;accent-color:#9c743b;flex:0 0 19px;width:19px;height:19px;padding:0;margin:0;border-radius:4px;cursor:pointer}
+.form-panel .signup-consent label{margin:0;color:#354759;font-size:12px;font-weight:500;line-height:1.55;cursor:pointer}
+.regulation-link{font-weight:800;color:#976a2c;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;cursor:pointer}
+.regulation-link:hover,.regulation-link:focus-visible{color:#694516;text-decoration-thickness:2px}
+.form-panel .signup-consent:focus-within{border-color:#c9a269;box-shadow:0 0 0 3px #e8ba7233}
+.form-panel .signup-consent.consent-invalid{border-color:#c97767;background:#fff5f3}
+.consent-warning{min-height:0;color:#aa423a;font-size:11px;font-weight:700;line-height:1.5;margin:7px 0 11px}
+.consent-warning:empty{margin:0 0 17px}
+.regulation-modal{position:fixed;inset:0;z-index:2050;display:grid;place-items:center;padding:18px}
+.regulation-modal-backdrop{position:absolute;inset:0;background:#051624cb;backdrop-filter:blur(5px)}
+.regulation-modal-panel{position:relative;width:min(760px,100%);max-height:min(90vh,860px);max-height:min(90svh,860px);display:flex;flex-direction:column;overflow:hidden;background:#fff;border:1px solid #d8dfdb;border-radius:18px;box-shadow:0 30px 90px #041522a6}
+.regulation-modal-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:24px 27px 17px;background:#102637;color:#fff}
+.regulation-modal-heading .mini-label{font-size:10px}
+.regulation-modal-heading h2{font-family:'Playfair Display',Georgia,serif;font-size:clamp(19px,3vw,27px);line-height:1.25;margin:9px 0}
+.regulation-modal-heading p{color:#becbd2;font-size:11px;margin:0}
+.regulation-modal-close{color:#e4d1ae;background:#ffffff13;border:1px solid #ffffff43;border-radius:9px;width:37px;height:37px;flex-shrink:0;font-size:25px;line-height:1}
+.regulation-modal-close:hover{background:#ffffff2b}
+.regulation-dialog-body{overflow-y:auto;overscroll-behavior:contain;flex:1;min-height:0;padding:8px 28px 18px;display:block;scrollbar-color:#c1ae91 #f5f5f2}
+.regulation-dialog-body .regulation-section{padding:18px 0}
+.regulation-dialog-body .regulation-section h4{font-size:12px}
+.regulation-dialog-body .regulation-section li{font-size:12px;line-height:1.75}
+.regulation-modal-footer{flex-shrink:0;display:flex;justify-content:flex-end;padding:13px 25px;background:#fbfaf7;border-top:1px solid #e5e9e5}
+@media(max-width:600px){
+ .regulation-modal{padding:8px}
+ .regulation-modal-panel{border-radius:14px;max-height:94svh}
+ .regulation-modal-heading{padding:18px 16px 15px}
+ .regulation-dialog-body{padding:5px 18px 14px}
+ .regulation-modal-footer{padding:12px 15px}
+ .regulation-modal-footer button{width:100%}
+ .form-panel .signup-consent{padding:12px 13px}
+}
