@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0d1a28" />
   <meta name="description" content="Inscrições, sorteio por rating e resultados da Copa Mata-Mata de Xadrez Entre Amigos." />
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/app.css?v=ratings-20261119" />
+  <link rel="stylesheet" href="/static/app.css?v=regulamento-aceite-20261119" />
   <title>Copa Mata-Mata | Xadrez Entre Amigos</title>
 </head>
 <body>
@@ -56,10 +56,15 @@
       <div class="entry-grid">
         <section class="panel form-panel" id="signup-panel" aria-labelledby="form-title">
           <div class="panel-heading"><div class="panel-number">01</div><div><h3 id="form-title">Inscrição do jogador</h3><p>Gratuita e aberta a todos os níveis.</p></div></div>
-          <form id="signup-form" autocomplete="on">
+          <form id="signup-form" autocomplete="on" novalidate>
             <label for="signup-name">Seu nome</label><input id="signup-name" name="name" required minlength="2" maxlength="70" placeholder="Ex.: João Silva" />
             <label for="signup-nick">Usuário do Lichess</label><div class="input-prefix"><span>@</span><input id="signup-nick" name="nick" required minlength="2" maxlength="30" placeholder="seu_nick" spellcheck="false" /></div>
             <div class="input-hint">Consultamos automaticamente os ratings públicos de seu perfil no Lichess. Somente o rating da modalidade do torneio poderá aparecer no chaveamento. Os demais ficam reservados ao sistema para organizar confrontos equilibrados. Ao se inscrever, você concorda com a exibição pública do seu nome, nick e rating do ritmo do torneio apenas no chaveamento.</div>
+            <div class="signup-consent" id="signup-consent">
+              <input type="checkbox" id="signup-agree" name="agreed_to_rules" value="true" aria-describedby="signup-agreement-warning" aria-required="true" />
+              <label for="signup-agree">Estou de acordo com o <a href="#regras" id="signup-regulation-link" class="regulation-link" aria-haspopup="dialog" aria-controls="regulation-dialog">Regulamento</a>.</label>
+            </div>
+            <div id="signup-agreement-warning" class="consent-warning" role="alert" aria-live="polite"></div>
             <button class="btn primary submit" id="signup-submit" type="submit">Confirmar inscrição <span>↗</span></button>
             <div id="signup-message" class="form-message" role="status" aria-live="polite"></div>
           </form>
@@ -117,6 +122,22 @@
   </main>
 
   <footer class="footer"><div class="brand footer-brand"><span class="brand-icon">♞</span><span><strong>XADREZ</strong><small>ENTRE AMIGOS</small></span></div><p>Um lance de cada vez. Que vença o melhor tabuleiro.</p><a href="https://lichess.org" target="_blank" rel="noopener noreferrer">Jogar no Lichess ↗</a></footer>
+  <div id="regulation-dialog" class="regulation-modal hidden" role="dialog" aria-modal="true" aria-labelledby="regulation-dialog-title" aria-describedby="regulation-dialog-description">
+    <div class="regulation-modal-backdrop" data-close-regulation></div>
+    <section class="regulation-modal-panel" tabindex="-1">
+      <div class="regulation-modal-heading">
+        <div><span class="mini-label">LEITURA ANTES DA INSCRIÇÃO</span>
+          <h2 id="regulation-dialog-title">Regulamento do torneio</h2>
+          <p id="regulation-dialog-description">Lichess.org · Eliminatória simples (mata-mata)</p>
+        </div>
+        <button type="button" id="regulation-dialog-close" class="regulation-modal-close" data-close-regulation aria-label="Fechar regulamento">×</button>
+      </div>
+      <div id="regulation-dialog-body" class="regulation-dialog-body"></div>
+      <div class="regulation-modal-footer">
+        <button type="button" class="btn primary slim" data-close-regulation>Voltar à inscrição</button>
+      </div>
+    </section>
+  </div>
   <div id="player-dialog" class="player-modal hidden" role="dialog" aria-modal="true" aria-labelledby="player-dialog-title">
     <div class="player-modal-backdrop" data-close-player></div>
     <div class="player-modal-panel panel" tabindex="-1">
@@ -125,6 +146,6 @@
     </div>
   </div>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=ratings-20261119" defer></script>
+  <script src="/static/app.js?v=regulamento-aceite-20261119" defer></script>
 </body>
 </html>
