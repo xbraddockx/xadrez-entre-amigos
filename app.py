@@ -103,6 +103,9 @@ class Player(Base):
     provisional: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[int] = mapped_column(Integer, default=0)
     ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    disqualified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    disqualified_round: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    disqualification_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -172,6 +175,12 @@ with engine.begin() as conn:
     player_columns = {col['name'] for col in inspect(conn).get_columns('players')}
     if 'ratings_json' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN ratings_json TEXT'))
+    if 'disqualified_at' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN disqualified_at TIMESTAMP WITH TIME ZONE'))
+    if 'disqualified_round' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN disqualified_round INTEGER'))
+    if 'disqualification_reason' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN disqualification_reason VARCHAR(300)'))
     existing = {col['name'] for col in inspect(conn).get_columns('tournaments')}
     columns = {
         'title': "VARCHAR(120) NOT NULL DEFAULT 'Copa Mata-Mata | Xadrez Entre Amigos'",
@@ -270,10 +279,14 @@ def ratings_from_lichess(profile):
     return result
 
 
-def pdata(p, t=None):
+def pdata(p, t=None, include_private=False):
     # Público recebe só o rating da categoria atual, nunca as outras modalidades
     # ou o rating auxiliar privado usado no sorteio de pares.
-    result = {'id': p.id, 'name': p.name, 'nick': p.nick}
+    result = {'id': p.id, 'name': p.name, 'nick': p.nick,
+              'disqualified': bool(p.disqualified_at), 'disqualified_round': p.disqualified_round}
+    if include_private and p.disqualified_at:
+        result['disqualified_at'] = iso(p.disqualified_at)
+        result['disqualification_reason'] = p.disqualification_reason
     if t is not None:
         speed = speed_for_clock(t.minutes, t.increment)
         selected = stored_ratings(p).get(speed) or {}
@@ -331,14 +344,14 @@ def record_game(db, match, outcome, link, source):
                          result_source=source))
 
 
-def status_data(db):
+def status_data(db, include_private=False):
     t = db.get(Tournament, 1)
     players = db.scalars(select(Player).order_by(Player.created_at, Player.id)).all()
     matches = db.scalars(select(Match).order_by(Match.round_no, Match.sort_order)).all()
     return {
         "status": t.status, "round": t.current_round, "started": iso(t.round_started),
         "deadline": iso(t.deadline), "champion_id": t.champion_id,
-        "players": [pdata(p, t) for p in players], "matches": [mdata(m) for m in matches],
+        "players": [pdata(p, t, include_private=include_private) for p in players], "matches": [mdata(m) for m in matches],
         "games": [game_data(g) for g in db.scalars(select(MatchGame).order_by(MatchGame.id)).all()],
         "admin_enabled": bool(ADMIN_PASSWORD),
         "settings": tournament_settings(t),
@@ -635,7 +648,8 @@ def archived_tournament(archive_id: int):
         # Remove classificações internas dos históricos legados no endpoint público.
         data['players'] = [{
             'id': p['id'], 'name': p['name'], 'nick': p['nick'],
-            'rating': p.get('rating'), 'provisional': p.get('provisional', False)
+            'rating': p.get('rating'), 'provisional': p.get('provisional', False),
+            'disqualified': bool(p.get('disqualified')), 'disqualified_round': p.get('disqualified_round')
         } for p in data.get('players', [])]
         return {**data, 'viewing_archive': True,
                 'archive_id': a.id, 'archived_at': iso(a.archived_at)}
@@ -757,7 +771,7 @@ def export_tournament_history(request: Request):
         return {
             'format': 'xadrez-entre-amigos-backup-v1',
             'exported_at': iso(datetime.now(timezone.utc)),
-            'current': status_data(db),
+            'current': status_data(db, include_private=True),
             'archives': [
                 {'id': a.id, 'title': a.title, 'archived_at': iso(a.archived_at),
                  'data': json.loads(a.snapshot)} for a in archived
@@ -798,7 +812,7 @@ def create_next_tournament(data: NewTournamentIn, request: Request):
         t = db.get(Tournament, 1)
         if t.status == 'active':
             fail(409, 'Conclua primeiro todas as rodadas do torneio atual.')
-        previous = status_data(db)
+        previous = status_data(db, include_private=True)
         if t.status == 'registration' and previous['players']:
             fail(409, 'Há inscrições abertas. Para preservar os participantes, conclua a edição antes de criar outra.')
         if previous['players'] or previous['matches'] or t.status == 'finished':
@@ -842,7 +856,8 @@ def next_round(request: Request):
         matches = db.scalars(select(Match).where(Match.round_no == t.current_round)).all()
         if not matches or any(m.status in ('pending','draw_pending') for m in matches):
             fail(409, "Há partidas sem resultado confirmado nesta rodada.")
-        winners = [db.get(Player, m.winner_id) for m in matches if m.winner_id]
+        winners = [p for m in matches if m.winner_id
+                   for p in [db.get(Player, m.winner_id)] if p and not p.disqualified_at]
         add_round(db, t, winners)
     return {"message": "Próxima rodada gerada."}
 
@@ -856,6 +871,8 @@ def editable_match(db, match_id):
         fail(409, 'Só é permitido alterar partidas da rodada atual.')
     if m.player2_id is None:
         fail(409, 'Classificação automática não pode ser alterada.')
+    if m.result_source == 'disqualification':
+        fail(409, 'Confronto encerrado por desclassificação. O resultado técnico não pode ser alterado.')
     return m
 
 
