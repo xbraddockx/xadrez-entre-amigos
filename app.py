@@ -481,14 +481,14 @@ def retry_one_pending_rating():
             if error.status_code == 400:
                 with Session.begin() as db:
                     player = db.get(Player, player_id)
-                    if player and player.verified == 0:
+                    if player and player.verified == 0 and player.nick_key == nick.casefold():
                         player.verified = -1
             return
         if profile is None:
             return
         with Session.begin() as db:
             player = db.get(Player, player_id)
-            if player and player.verified == 0:
+            if player and player.verified == 0 and player.nick_key == nick.casefold():
                 apply_lichess_ratings(player, profile, db.get(Tournament, 1))
     except Exception:
         logging.exception('Falha ao tentar atualizar rating pendente.')
@@ -1021,6 +1021,67 @@ def admin_rating_data(p):
     }
 
 
+
+class PlayerIdentityIn(BaseModel):
+    name: str = Field(min_length=2, max_length=70)
+    nick: str = Field(min_length=2, max_length=30)
+
+    @field_validator('name')
+    @classmethod
+    def normalize_player_name(cls, value):
+        value = ' '.join(value.split())
+        if len(value) < 2 or not any(ch.isalpha() for ch in value):
+            raise ValueError('Informe um nome válido.')
+        return value
+
+    @field_validator('nick')
+    @classmethod
+    def normalize_player_nick(cls, value):
+        value = value.strip().lstrip('@')
+        if not USERNAME_RE.fullmatch(value):
+            raise ValueError('Nick inválido para o Lichess.')
+        return value
+
+
+@app.put('/api/admin/players/{player_id}/identity')
+def update_player_identity(player_id: int, data: PlayerIdentityIn, request: Request):
+    """Corrige o cadastro mantendo IDs, confrontos, partidas e aceite intactos."""
+    require_admin(request)
+    try:
+        with Session.begin() as db:
+            player = db.get(Player, player_id)
+            if not player:
+                fail(404, 'Inscrito não encontrado nesta edição.')
+            key = data.nick.casefold()
+            other = db.scalar(select(Player.id).where(
+                Player.nick_key == key, Player.id != player_id))
+            if other:
+                fail(409, 'Este nick já pertence a outro inscrito do torneio.')
+            nick_changed = player.nick_key != key
+            player.name = data.name
+            player.nick = data.nick
+            player.nick_key = key
+            if nick_changed:
+                # Nunca atribuir ao novo usuário ratings de uma conta antiga.
+                player.ratings_json = None
+                player.manual_ratings_json = None
+                player.ratings_synced_at = None
+                player.rating_official = None
+                player.rating_reported = 1500
+                player.rating = 1500
+                player.provisional = 0
+                player.verified = 0
+            db.flush()
+    except IntegrityError:
+        fail(409, 'Este nick já está inscrito no torneio.')
+    return {
+        'message': ('Nome e nick atualizados. Os ratings anteriores foram limpos; '
+                    'o sistema tentará consultar o novo usuário no Lichess.'
+                    if nick_changed else 'Dados do participante atualizados.'),
+        'nick_changed': nick_changed,
+    }
+
+
 @app.get('/api/admin/ratings')
 def list_admin_ratings(request: Request):
     require_admin(request)
@@ -1072,7 +1133,7 @@ def refresh_player_lichess_rating(player_id: int, request: Request):
             raise
         with Session.begin() as db:
             player = db.get(Player, player_id)
-            if player and player.verified != 1:
+            if player and player.verified != 1 and player.nick_key == nick.casefold():
                 player.verified = -1
         return {'message': 'O Lichess informou que esse nick não existe. Confira o cadastro.',
                 'not_found': True}
@@ -1083,6 +1144,8 @@ def refresh_player_lichess_rating(player_id: int, request: Request):
         player = db.get(Player, player_id)
         if player is None:
             fail(404, 'Jogador não encontrado nesta edição.')
+        if player.nick_key != nick.casefold():
+            fail(409, 'O nick foi alterado durante a consulta. Tente novamente com o novo nick.')
         apply_lichess_ratings(player, profile, db.get(Tournament, 1))
     return {'message': 'Ratings do Lichess atualizados. Ajustes manuais foram mantidos.',
             'pending': False}
