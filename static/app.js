@@ -469,7 +469,7 @@ function renderAdminRatings(){
  const cards=players.map(p=>{
   const expanded=ratingEditorId===p.id;
   const main=p.ratings[data.category]||{};
-  const status=p.verified===1?'Lichess consultado':p.verified===-1?'Nick não confirmado':'Rating pendente';
+  const status=p.verified===1?(p.origin==='admin_browser'?'Via navegador':'Lichess consultado'):p.verified===-1?'Nick não confirmado':'Rating pendente';
   const badge=p.verified===1?'rating-state-ok':p.verified===-1?'rating-state-error':'rating-state-pending';
   let details='';
   if(expanded){
@@ -481,9 +481,10 @@ function renderAdminRatings(){
     '<label class="rating-manager-field"><span>'+label+'</span><input type="number" min="400" max="3500" step="1" inputmode="numeric" name="'+key+'" placeholder="Sem ajuste manual" value="'+(p.manual[key]??'')+'"/></label>'
    ).join('');
    const idForm='<form class="participant-identity-form" data-player-identity="'+p.id+'"><h4>Corrigir cadastro</h4><div class="participant-identity-fields"><label><span>Nome</span><input type="text" name="name" maxlength="70" minlength="2" required value="'+esc(p.name)+'" autocomplete="off"/></label><label><span>Nick do Lichess</span><input type="text" name="nick" maxlength="30" minlength="2" required value="'+esc(p.nick)+'" autocapitalize="none" spellcheck="false" autocomplete="off"/></label></div><p class="rating-manager-help">Ao trocar o nick por outra conta, os ratings antigos são limpos para evitar confusão. Os confrontos e links já registrados serão preservados.</p><button type="submit" class="btn primary slim">Salvar nome e nick</button></form>';
+   const message=p.error?'<p class="rating-manager-help rating-sync-error">Última consulta: '+esc(p.error)+'. Use o botão abaixo para tentar pelo navegador.</p>':'';
    const ratingForm='<form class="rating-manager-editor" data-rating-player="'+p.id+'"><h4>Corrigir ratings (opcional)</h4><div class="rating-manager-fields">'+fields+'</div><p class="rating-manager-help">Campos vazios usam o rating oficial, quando disponível. Preencha apenas ajustes manuais.</p><div class="rating-manager-editor-actions"><button class="btn primary slim" type="submit">Salvar ratings</button><button class="btn slim" type="button" data-refresh-rating="'+p.id+'">Consultar no Lichess</button></div></form>';
    const deletion=site.status==='registration'?'<button class="participant-remove" type="button" data-delete-player="'+p.id+'">Remover inscrição</button>':'<p class="participant-remove-note">Após o início do torneio, use a desclassificação para preservar os resultados.</p>';
-   details='<div class="participant-editor" id="participant-detail-'+p.id+'"><div class="participant-ratings-summary">'+values+'</div>'+idForm+ratingForm+'<div class="participant-editor-footer">'+deletion+'</div></div>';
+   details='<div class="participant-editor" id="participant-detail-'+p.id+'"><div class="participant-ratings-summary">'+values+'</div>'+message+idForm+ratingForm+'<div class="participant-editor-footer">'+deletion+'</div></div>';
   }
   const ratingText=main.rating==null?'s/r':main.rating+(main.provisional?'?':'');
   return '<article class="participant-accordion'+(expanded?' is-open':'')+'">'+
@@ -495,15 +496,48 @@ function renderAdminRatings(){
     '<span class="participant-chevron" aria-hidden="true">'+(expanded?'⌃':'⌄')+'</span>'+
    '</button>'+details+'</article>';
  }).join('');
- root.innerHTML='<section class="admin-config rating-management participant-management"><div class="admin-config-head"><div><h3>Gerenciar inscrições e ratings</h3><p>Toque no jogador para expandir o cadastro, corrigir nome e nick, consultar os ratings ou remover sua inscrição.</p></div></div>'+
+ const lichessInfo=data.lichess||{};
+ const blocked=lichessInfo.rate_limited;
+ const wait=lichessInfo.cooldown_seconds||0;
+ const diagnostic=blocked?'<div class="rating-api-warning" role="status"><strong>Lichess limitando consultas do servidor (HTTP 429).</strong><span>'+(wait?'O sistema respeitará a pausa de aproximadamente '+Math.ceil(wait/60)+' minuto(s). ':'')+'O botão de consulta também tentará acessar a API pelo navegador do organizador, sem alterar as inscrições.</span></div>':'';
+ root.innerHTML='<section class="admin-config rating-management participant-management"><div class="admin-config-head"><div><h3>Gerenciar inscrições e ratings</h3><p>Toque no jogador para expandir o cadastro, corrigir nome e nick, consultar os ratings ou remover sua inscrição.</p></div></div>'+diagnostic+
   '<div class="rating-manager-toolbar"><span><strong>'+players.length+'</strong> participante(s) · Rating de '+esc(names[data.category]||data.category)+'</span><button type="button" data-reload-ratings="true">Atualizar lista</button></div>'+
   '<div class="participant-accordions">'+(cards||'<p class="admin-help">Ainda não há inscritos nesta edição.</p>')+'</div></section>';
 }
 
-async function retryRatingManually(id){
+async function lichessFromOrganizerBrowser(id,nick){
+ const controller=new AbortController();
+ const timeout=setTimeout(()=>controller.abort(),9000);
  try{
-  const r=await api('/api/admin/players/'+id+'/refresh-ratings',{method:'POST'});
-  toast(r.message||'Consulta concluída.');
+  const response=await fetch('https://lichess.org/api/user/'+encodeURIComponent(nick),{
+   method:'GET',mode:'cors',headers:{'Accept':'application/json'},signal:controller.signal
+  });
+  if(response.status===429)throw new Error('O Lichess também limitou seu navegador (HTTP 429).');
+  if(!response.ok)throw new Error('O Lichess respondeu HTTP '+response.status+' no navegador.');
+  const data=await response.json();
+  const account=String(data.id||data.username||'');
+  if(account.toLowerCase()!==nick.toLowerCase())throw new Error('O perfil recebido não corresponde ao nick informado.');
+  if(!data.perfs||typeof data.perfs!=='object')throw new Error('O Lichess não retornou os ratings do usuário.');
+  const result=await api('/api/admin/players/'+id+'/browser-ratings',{
+   method:'POST',body:JSON.stringify({nick,perfs:data.perfs})
+  });
+  toast(result.message);
+  return true;
+ }finally{clearTimeout(timeout)}
+}
+async function retryRatingManually(id){
+ const player=adminRatingData?.players?.find(p=>p.id===id);
+ if(!player)return toast('Jogador não encontrado. Atualize a lista.');
+ try{
+  const result=await api('/api/admin/players/'+id+'/refresh-ratings',{method:'POST'});
+  if(result.pending){
+   toast('Servidor sem acesso ao Lichess. Tentando pelo seu navegador...');
+   try{
+    await lichessFromOrganizerBrowser(id,player.nick);
+   }catch(error){
+    toast('O navegador também não conseguiu obter os ratings. Você pode preenchê-los manualmente. '+error.message);
+   }
+  }else toast(result.message||'Consulta concluída.');
   await loadAdminRatings(true);
   await refresh();
  }catch(error){toast(error.message)}
