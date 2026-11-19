@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 210" role="img" aria-labelledby="title"><title id="title">Troféu do campeão de xadrez</title>
+<defs><linearGradient id="gold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff1b6"/><stop offset=".35" stop-color="#e8ba72"/><stop offset=".68" stop-color="#b98947"/><stop offset="1" stop-color="#ffe0a0"/></linearGradient><linearGradient id="stem" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ffedb7"/><stop offset="1" stop-color="#ae7836"/></linearGradient></defs>
+<ellipse cx="90" cy="190" rx="65" ry="8" fill="#071522" opacity=".24"/>
+<path d="M50 21h80v58c0 37-20 61-40 61S50 116 50 79z" fill="url(#gold)" stroke="#f8d593" stroke-width="3"/>
+<path d="M50 30H26c-8 0-13 7-11 18 5 29 24 49 44 46" fill="none" stroke="#e8ba72" stroke-width="12" stroke-linecap="round"/>
+<path d="M130 30h24c8 0 13 7 11 18-5 29-24 49-44 46" fill="none" stroke="#e8ba72" stroke-width="12" stroke-linecap="round"/>
+<path d="M63 28h54v54c0 25-11 46-27 46S63 107 63 82z" fill="#ffe0a0" opacity=".18"/>
+<path d="M81 137h18v29H81z" fill="url(#stem)"/>
+<path d="M56 164h68v12H56z" fill="url(#gold)" stroke="#f6d08c" stroke-width="2"/>
+<path d="M45 175h90v18H45z" fill="#1b3646" stroke="#e6b56c" stroke-width="3"/>
+<path d="M66 55h48v54H66z" fill="#1b3646" opacity=".14" rx="8"/>
+<path d="M85 58h11l3 8-5 10 8 10h-24l7-11-4-9z" fill="#20394a"/>
+<circle cx="86" cy="61" r="5" fill="#20394a"/>
+<path d="M65 189h50" stroke="#f7df9c" stroke-width="2" opacity=".9"/>
+<path d="M89 12l3 8 8 2-8 4-3 8-3-8-8-4 8-2z" fill="#f4d78a" opacity=".9"/>
+</svg>
