@@ -637,7 +637,8 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
    if(archiveId===id)archiveId=0;
    importSelected.clear();
    importSourceId=0;
-   await Promise.all([loadImportablePlayers(),refresh()]);
+   await loadImportablePlayers();
+   await refresh();
   }catch(error){toast(error.message)}
   finally{if(button.isConnected)button.disabled=false}
   return;
