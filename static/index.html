@@ -52,15 +52,14 @@
       <div class="stat stat-last"><span class="stat-label">STATUS</span><span id="status-pill" class="status-pill"><span class="pulse"></span> Inscrições abertas</span></div>
     </section>
 
-      <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Preencha seus dados. O rating do Lichess na modalidade Rapid será priorizado quando disponível.</p></div></div>
+      <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Informe seu nome e nick do Lichess. O sistema buscará automaticamente os ratings para organizar os confrontos.</p></div></div>
       <div class="entry-grid">
         <section class="panel form-panel" id="signup-panel" aria-labelledby="form-title">
           <div class="panel-heading"><div class="panel-number">01</div><div><h3 id="form-title">Inscrição do jogador</h3><p>Gratuita e aberta a todos os níveis.</p></div></div>
           <form id="signup-form" autocomplete="on">
             <label for="signup-name">Seu nome</label><input id="signup-name" name="name" required minlength="2" maxlength="70" placeholder="Ex.: João Silva" />
             <label for="signup-nick">Usuário do Lichess</label><div class="input-prefix"><span>@</span><input id="signup-nick" name="nick" required minlength="2" maxlength="30" placeholder="seu_nick" spellcheck="false" /></div>
-            <label for="signup-rating">Seu rating Rapid (aproximado)</label><input id="signup-rating" name="rating" required type="number" inputmode="numeric" min="400" max="3500" placeholder="Ex.: 1600" />
-            <div class="input-hint">Usamos o rating Rapid público do Lichess, se disponível. O rating informado é usado quando a consulta não for possível. Ao se inscrever, você concorda que nome, nick e rating apareçam publicamente no torneio.</div>
+            <div class="input-hint">Consultamos automaticamente os ratings públicos de seu perfil no Lichess. Somente o rating da modalidade do torneio poderá aparecer no chaveamento. Os demais ficam reservados ao sistema para organizar confrontos equilibrados. Ao se inscrever, você concorda com a exibição pública do seu nome, nick e rating do ritmo do torneio apenas no chaveamento.</div>
             <button class="btn primary submit" id="signup-submit" type="submit">Confirmar inscrição <span>↗</span></button>
             <div id="signup-message" class="form-message" role="status" aria-live="polite"></div>
           </form>
@@ -68,7 +67,7 @@
         </section>
         <section class="panel participants-panel" aria-labelledby="players-title">
           <div class="panel-heading top-split"><div class="heading-inline"><div class="panel-number">02</div><div><h3 id="players-title">Participantes</h3><p>Confira quem já está na disputa.</p></div></div><span id="player-counter" class="counter">0 jogadores</span></div>
-          <div class="player-list-head"><span>JOGADOR</span><span>RATING</span></div>
+          <div class="player-list-head"><span>JOGADOR</span><span>STATUS</span></div>
           <div id="player-list" class="player-list"></div>
           <div class="panel-bottom"><button class="text-button" data-tab="chaves">Visualizar possíveis confrontos <span>↗</span></button></div>
         </section>
