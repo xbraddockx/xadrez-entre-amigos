@@ -284,9 +284,11 @@ def pdata(p, t=None, include_private=False):
     # ou o rating auxiliar privado usado no sorteio de pares.
     result = {'id': p.id, 'name': p.name, 'nick': p.nick,
               'disqualified': bool(p.disqualified_at), 'disqualified_round': p.disqualified_round}
-    if include_private and p.disqualified_at:
-        result['disqualified_at'] = iso(p.disqualified_at)
-        result['disqualification_reason'] = p.disqualification_reason
+    if include_private:
+        result['ratings_json'] = p.ratings_json
+        if p.disqualified_at:
+            result['disqualified_at'] = iso(p.disqualified_at)
+            result['disqualification_reason'] = p.disqualification_reason
     if t is not None:
         speed = speed_for_clock(t.minutes, t.increment)
         selected = stored_ratings(p).get(speed) or {}
@@ -600,6 +602,55 @@ class RegulationUpdateIn(BaseModel):
     sections: list[RegulationSectionIn] = Field(min_length=7, max_length=7)
 
 
+
+class ImportPlayersIn(BaseModel):
+    archive_id: int = Field(ge=1)
+    nicks: list[str] = Field(min_length=1, max_length=100)
+
+    @field_validator('nicks')
+    @classmethod
+    def normalize_import_nicks(cls, values):
+        cleaned = []
+        seen = set()
+        for nick in values:
+            nick = str(nick).strip().lstrip('@')
+            if not USERNAME_RE.fullmatch(nick):
+                raise ValueError('A seleção contém um nick inválido.')
+            key = nick.casefold()
+            if key not in seen:
+                cleaned.append(nick)
+                seen.add(key)
+        return cleaned
+
+
+def imported_ratings(archive_player, archive_settings):
+    """Somente ratings oficiais já conhecidos; não inventa rating de modalidade."""
+    cached = archive_player.get('ratings_json')
+    try:
+        cached = json.loads(cached) if isinstance(cached, str) else cached
+    except (TypeError, ValueError):
+        cached = {}
+    result = {}
+    if isinstance(cached, dict):
+        for speed in SPEEDS:
+            entry = cached.get(speed)
+            if isinstance(entry, dict):
+                rating = entry.get('rating')
+                if isinstance(rating, int) and not isinstance(rating, bool) and 400 <= rating <= 3500:
+                    result[speed] = {'rating': rating, 'prov': bool(entry.get('prov', False)),
+                                     'games': entry.get('games')}
+    if not result:
+        # Em arquivos antigos havia um único rating exibido na categoria da edição.
+        old_rating = archive_player.get('rating')
+        if isinstance(old_rating, int) and not isinstance(old_rating, bool) and 400 <= old_rating <= 3500:
+            original_speed = speed_for_clock(archive_settings.get('minutes', 10),
+                                             archive_settings.get('increment', 0))
+            result[original_speed] = {
+                'rating': old_rating, 'prov': bool(archive_player.get('provisional', False))
+            }
+    return result
+
+
 class NewTournamentIn(TournamentSettingsIn):
     pass
 
@@ -802,6 +853,93 @@ def save_regulation(data: RegulationUpdateIn, request: Request):
         t = db.get(Tournament, 1)
         t.regulation_json = json.dumps([section.model_dump() for section in data.sections], ensure_ascii=False)
     return {'message': 'Regulamento atualizado e publicado.'}
+
+
+
+@app.get('/api/admin/importable-players')
+def list_importable_players(request: Request):
+    require_admin(request)
+    with Session() as db:
+        t = db.get(Tournament, 1)
+        if t.status != 'registration':
+            return {'available': False, 'editions': [], 'players': [],
+                    'message': 'A transferência só é permitida com inscrições abertas.'}
+        existing = {p.nick_key for p in db.scalars(select(Player)).all()}
+        archives = db.scalars(select(TournamentArchive).order_by(TournamentArchive.id.desc())).all()
+        editions = []
+        choices = []
+        for archive in archives:
+            snapshot = json.loads(archive.snapshot)
+            edition = {'id': archive.id, 'title': archive.title, 'count': len(snapshot.get('players', []))}
+            editions.append(edition)
+            seen = set()
+            for item in snapshot.get('players', []):
+                nick = str(item.get('nick', '')).strip()
+                key = nick.casefold()
+                if not USERNAME_RE.fullmatch(nick) or key in seen:
+                    continue
+                seen.add(key)
+                choices.append({
+                    'archive_id': archive.id, 'nick': nick, 'name': str(item.get('name', '')),
+                    'already_registered': key in existing
+                })
+        return {'available': True, 'editions': editions, 'players': choices,
+                'registered_count': len(existing)}
+
+
+@app.post('/api/admin/import-players')
+def import_players(data: ImportPlayersIn, request: Request):
+    """Copia inscrições autorizadas do arquivo para uma edição com inscrições abertas.
+
+    Nicks repetidos, inclusive entre importação e inscrição pública concorrentes,
+    são impedidos pela constraint UNIQUE de players.nick_key.
+    """
+    require_admin(request)
+    with Session.begin() as db:
+        t = db.get(Tournament, 1)
+        if t.status != 'registration':
+            fail(409, 'Só é possível transferir jogadores enquanto as inscrições estiverem abertas.')
+        archive = db.get(TournamentArchive, data.archive_id)
+        if archive is None:
+            fail(404, 'Edição de origem não encontrada.')
+        snapshot = json.loads(archive.snapshot)
+        source = {str(item.get('nick', '')).strip().casefold(): item
+                  for item in snapshot.get('players', []) if item.get('nick')}
+        missing = [nick for nick in data.nicks if nick.casefold() not in source]
+        if missing:
+            fail(400, 'Alguns nicks selecionados não pertencem à edição de origem.')
+        existing = {p.nick_key for p in db.scalars(select(Player)).all()}
+        speed = speed_for_clock(t.minutes, t.increment)
+        imported, skipped = [], []
+        for nick in data.nicks:
+            key = nick.casefold()
+            if key in existing:
+                skipped.append(nick)
+                continue
+            record = source[key]
+            name = ' '.join(str(record.get('name', '')).split())
+            canonical = str(record.get('nick', '')).strip()
+            if not (2 <= len(name) <= 70 and USERNAME_RE.fullmatch(canonical)):
+                skipped.append(nick)
+                continue
+            ratings = imported_ratings(record, snapshot.get('settings') or {})
+            chosen = ratings.get(speed) or {}
+            rapid = ratings.get('rapid') or {}
+            player = Player(
+                name=name, nick=canonical, nick_key=canonical.casefold(),
+                rating_reported=1500, rating_official=rapid.get('rating'),
+                rating=chosen.get('rating') or 1500,
+                provisional=int(bool(chosen.get('prov'))), verified=int(bool(ratings)),
+                ratings_json=json.dumps(ratings, ensure_ascii=False))
+            db.add(player)
+            existing.add(key)
+            imported.append(canonical)
+        try:
+            db.flush()
+        except IntegrityError:
+            fail(409, 'Inscrição simultânea detectada. Atualize a lista e tente novamente.')
+    return {'message': f'{len(imported)} jogador(es) transferido(s) para a edição atual.',
+            'imported': len(imported), 'skipped': skipped}
 
 
 @app.post('/api/admin/tournaments/new', status_code=201)
