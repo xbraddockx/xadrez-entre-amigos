@@ -5,6 +5,7 @@ let editions = [];
 let newEditionOpen = false;
 let preview = {pairs:[],byes:[]};
 let admin = false;
+let adminDisqualifications = [];
 let toastTimer;
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -296,7 +297,7 @@ function closePlayerHistory(){
 }
 
 async function checkAdmin(){
- try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin)renderAdmin();if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
+ try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin){await loadDisqualifications();renderAdmin()}else adminDisqualifications=[];if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
 }
 function renderAdminColors(){
  const area=$('#admin-colors');if(!area)return;
@@ -305,11 +306,52 @@ function renderAdminColors(){
  area.innerHTML='<section class="admin-results" style="margin-top:20px"><h3>Cores de confrontos anteriores</h3><p class="admin-help" style="padding:0 20px 12px">Confrontos realizados antes da atualização não receberam cores fictícias. Informe quem realmente jogou de brancas para completar o histórico.</p>'+old.map(m=>'<article class="admin-match-card"><div class="admin-match-summary"><div><strong>Rodada '+m.round+' · '+esc(nameFor(m.p1)?.nick)+' × '+esc(nameFor(m.p2)?.nick)+'</strong><small>'+(m.white_id?'Brancas: @'+esc(nameFor(m.white_id)?.nick||'?'):'Cor não registrada')+'</small></div><button class="api-btn" data-edit-color="'+m.id+'">Definir cores</button></div><div id="admin-detail-'+m.id+'"></div></article>').join('')+'</section>';
 }
 
+
+async function loadDisqualifications(){
+ if(!admin){adminDisqualifications=[];return}
+ try{const data=await api('/api/admin/disqualifications');adminDisqualifications=data.items||[]}
+ catch(e){adminDisqualifications=[];toast(e.message)}
+}
+function renderAdminDisqualifications(){
+ const container=$('#admin-disqualifications');
+ if(!container)return;
+ if(site.status!=='active'){container.innerHTML='';return}
+ const current=(site.matches||[]).filter(m=>m.round===site.round);
+ const candidates=(site.players||[]).filter(p=>{
+  if(p.disqualified)return false;
+  const m=current.find(m=>m.p1===p.id||m.p2===p.id);
+  return !!m && (['pending','draw_pending'].includes(m.status)||m.winner===p.id);
+ });
+ const records=new Map(adminDisqualifications.map(d=>[d.player_id,d]));
+ const disqualified=(site.players||[]).filter(p=>p.disqualified);
+ let html='<section class="admin-results disqualification-panel"><div class="disqualification-head"><h3>Desclassificação de participantes</h3><p>Após o início, você pode desclassificar um jogador sem apagar partidas ou links do Lichess. O adversário recebe vitória técnica; caso haja folga, a vaga é cancelada.</p></div>';
+ html+='<div class="disqualification-players">'+(candidates.length?candidates.map(p=>{
+  const m=current.find(m=>m.p1===p.id||m.p2===p.id);
+  return '<div class="disqualification-person"><span><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · Rodada '+m.round+'</small></span><button class="disqualify-btn" data-disqualify-player="'+p.id+'" type="button">Desclassificar</button></div>';
+ }).join(''):'<p class="admin-help">Não há jogadores elegíveis para desclassificação nesta rodada.</p>')+'</div>';
+ html+='<div id="disqualification-form-area"></div>';
+ if(disqualified.length){
+  html+='<div class="disqualification-history"><h4>Desclassificações registradas</h4>'+disqualified.map(p=>{
+   const record=records.get(p.id);
+   return '<div class="disqualification-record"><strong>'+esc(p.name)+'</strong><span>@'+esc(p.nick)+' · Rodada '+(p.disqualified_round??record?.round??'—')+'</span>'+(record?.reason?'<p><strong>Motivo registrado:</strong> '+esc(record.reason)+'</p>':'')+'</div>';
+  }).join('')+'</div>';
+ }
+ html+='</section>';
+ container.innerHTML=html;
+}
+function showDisqualificationForm(id){
+ const player=nameFor(id),area=$('#disqualification-form-area');
+ if(!player||!area)return;
+ area.innerHTML='<form class="admin-edit disqualification-form" data-disqualification-id="'+id+'"><h4>Desclassificar '+esc(player.name)+'</h4><p>O resultado técnico da rodada será atualizado. As partidas já jogadas continuarão no histórico. O motivo não será divulgado publicamente.</p><label for="disqualification-reason">Motivo da desclassificação</label><textarea id="disqualification-reason" name="reason" required minlength="8" maxlength="300" rows="3" placeholder="Ex.: desistência comunicada à organização"></textarea><div class="disqualification-actions"><button class="btn primary slim" type="submit">Confirmar desclassificação</button><button class="btn slim" type="button" data-cancel-disqualification="true">Cancelar</button></div></form>';
+ area.querySelector('textarea').focus();
+}
+
 function renderAdmin(){
  if(!site||!admin)return;
  renderAdminSettings();
  renderRegulationEditor();
  renderAdminColors();
+ renderAdminDisqualifications();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
@@ -346,7 +388,7 @@ async function lookupGames(id){
 }
 async function doAction(path,options,confirmText){
  if(confirmText&&!confirm(confirmText))return;
- try{const r=await api(path,options);toast(r.message||'Atualizado.');await refresh();}
+ try{const r=await api(path,options);toast(r.message||'Atualizado.');if(path.includes('/disqualify'))await loadDisqualifications();await refresh();}
  catch(e){toast(e.message)}
 }
 function settingsFields(s={},prefix='settings',freeze=false){
