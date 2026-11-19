@@ -245,3 +245,35 @@ body.modal-open{overflow:hidden}
  .regulation-modal-footer button{width:100%}
  .form-panel .signup-consent{padding:12px 13px}
 }
+
+
+/* Edições arquivadas: exclusão explícita e sem afetar torneio ativo */
+.archive-management{margin-top:24px}
+.archive-delete-list{padding:2px 22px 12px}
+.archive-delete-item{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:17px 0;border-bottom:1px solid #e7e9e6}
+.archive-delete-info{display:flex;flex-direction:column;gap:5px;min-width:0}
+.archive-delete-info strong{font-size:13px;line-height:1.5;color:#243b48;overflow-wrap:anywhere}
+.archive-delete-info small{font-size:11px;color:#74848a}
+.archive-delete-open{flex-shrink:0;border:1px solid #cfaba4;background:#fff9f7;color:#9d4b42;border-radius:9px;padding:10px 13px;font-size:11px;font-weight:800}
+.archive-delete-open:hover,.archive-delete-open:focus-visible{background:#ffede9;border-color:#b96757}
+.archive-delete-confirm-slot:empty{display:none}
+.archive-delete-form{border:1px solid #e4c6bd;background:#fffaf8;border-radius:12px;padding:18px;margin:12px 0 18px;display:flex;flex-direction:column;gap:11px}
+.archive-delete-form h4{font-size:14px;margin:0;color:#833e35}
+.archive-delete-form p{font-size:12px;line-height:1.7;color:#675a55;margin:0}
+.archive-delete-form label{font-size:12px;color:#4f555b}
+.archive-delete-form input{padding:12px 14px;background:#fff;border:1px solid #d4b6ae;border-radius:8px;width:min(260px,100%);font-size:13px}
+.archive-delete-form input:focus-visible{outline:2px solid #a66850;outline-offset:2px}
+.archive-delete-actions{display:flex;gap:10px;flex-wrap:wrap}
+.archive-delete-confirm-btn,.archive-delete-cancel-btn{border:0;border-radius:8px;padding:11px 15px;font-size:11px;font-weight:800}
+.archive-delete-confirm-btn{background:#ad5145;color:#fff}.archive-delete-confirm-btn:hover{background:#913a32}
+.archive-delete-confirm-btn:disabled{opacity:.5;cursor:wait}
+.archive-delete-cancel-btn{border:1px solid #d9dedb;background:#fff;color:#445963}
+.archive-delete-empty{font-size:12px;color:#687b83;padding:0 22px 14px}
+.archive-delete-disclaimer{margin:0;padding:14px 22px 18px;font-size:11px;line-height:1.7;color:#9b5148;background:#fff6f2;border-top:1px solid #eddfd9}
+@media(max-width:600px){
+ .archive-delete-list{padding:0 14px 12px}
+ .archive-delete-item{gap:9px}
+ .archive-delete-open{padding:10px;font-size:10px}
+ .archive-delete-disclaimer{padding:12px 14px}
+ .archive-delete-actions button{flex:1}
+}
