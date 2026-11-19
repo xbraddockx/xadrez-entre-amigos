@@ -121,7 +121,7 @@ function render(){
  $('#signup-submit').innerHTML=locked?'Inscrições indisponíveis':'Confirmar inscrição <span>↗</span>';
  $('#player-counter').textContent=`${site.players.length} jogador${site.players.length===1?'':'es'}`;
  const sorted=[...site.players].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
- $('#player-list').innerHTML=sorted.length?sorted.map(p=>`<div class="player-row"><div class="player-info"><div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div><div><strong>${esc(p.name)}</strong><a href="${profile(p)}" target="_blank" rel="noopener noreferrer">@${esc(p.nick)} ↗</a></div></div><div class="rating"><small>Inscrito</small></div></div>`).join(''):
+ $('#player-list').innerHTML=sorted.length?sorted.map(p=>`<div class="player-row"><div class="player-info"><div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div><div><strong>${esc(p.name)}</strong><a href="${profile(p)}" target="_blank" rel="noopener noreferrer">@${esc(p.nick)} ↗</a></div></div><div class="rating"><small>${p.disqualified?'Desclassificado':'Inscrito'}</small></div></div>`).join(''):
  `<div class="empty"><span class="empty-mark">♙</span><strong>O tabuleiro está pronto.</strong><p>Os jogadores aparecerão aqui assim que se inscreverem.</p></div>`;
  renderBracket();
  renderRanking();
@@ -140,6 +140,7 @@ function bracketCard(item, i, isPreview=false){
 
 function treeScore(match,id){
  if(!match||match.status==='pending')return '—';
+ if(match.status==='dq')return '0';
  if(match.status==='bye')return match.winner===id?'↗':'—';
  if(match.status==='draw_pending')return '1/2';
  if(match.status==='double_wo')return '0';
@@ -148,12 +149,12 @@ function treeScore(match,id){
 function treePlayer(p,match,ghost=false){
  if(!p)return '<div class="tree-player tree-player-empty"><span class="tree-avatar">♙</span><span class="tree-player-meta"><strong>A definir</strong><small>Próxima fase</small></span></div>';
  const win=match&&match.winner===p.id;
- return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(speedName())+' '+esc(rating(p))+'</small></span><span class="tree-color-and-score">'+(!ghost&&match?.p2?(match.white_id?'<span class="color-chip '+(match.white_id===p.id?'white-piece':'black-piece')+'">'+(match.white_id===p.id?'♔ Brancas':'♚ Pretas')+'</span>':'<span class="color-chip unknown-piece">Cor não registrada</span>'):'')+'<span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></span></button>';
+ return '<button class="tree-player '+(win?'tree-player-win':'')+(p.disqualified?' tree-player-disqualified':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(speedName())+' '+esc(rating(p))+(p.disqualified?' · Desclassificado':'')+'</small></span><span class="tree-color-and-score">'+(!ghost&&match?.p2?(match.white_id?'<span class="color-chip '+(match.white_id===p.id?'white-piece':'black-piece')+'">'+(match.white_id===p.id?'♔ Brancas':'♚ Pretas')+'</span>':'<span class="color-chip unknown-piece">Cor não registrada</span>'):'')+'<span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></span></button>';
 }
 function treeMatch(match,index,isPreview=false){
  const p1=nameFor(match?.p1),p2=nameFor(match?.p2);
  const isBye=!isPreview&&match&&match.status==='bye';
- const s=isPreview?'Prévia':!match?'A definir':({pending:'Aguardando',draw_pending:'Desempate',complete:'Concluído',wo:'W.O.',double_wo:'W.O. duplo',bye:'Folga'}[match.status]||'Aguardando');
+ const s=isPreview?'Prévia':!match?'A definir':match.source==='disqualification'?'Desclassificação':({pending:'Aguardando',draw_pending:'Desempate',complete:'Concluído',wo:'W.O.',double_wo:'W.O. duplo',bye:'Folga',dq:'Desclassificação'}[match.status]||'Aguardando');
  let html='<article class="tree-match"><div class="tree-match-head"><span>CONFRONTO '+(index+1)+'</span><span class="tree-state '+((match?.status==='complete'||match?.status==='wo')?'state-won':'')+'">'+s+'</span></div>';
  html+=treePlayer(p1,match,isPreview);
  html+=isBye?'<div class="tree-player tree-player-empty"><span class="tree-avatar">↗</span><span class="tree-player-meta"><strong>Classificado por folga</strong><small>Sem adversário nesta rodada</small></span></div>':treePlayer(p2,match,isPreview);
@@ -224,8 +225,9 @@ function standings(){
   players.forEach(p=>p.roundReached=Math.max(p.roundReached,m.round||0));
   const winner=byId.get(m.winner);
   if(winner&&m.status!=='bye')winner.matchWins++;
-  if(['wo','double_wo','bye','pending'].includes(m.status))continue;
+  if(['double_wo','bye','pending','dq'].includes(m.status))continue;
   const games=(site.games||[]).filter(g=>g.match_id===m.id);
+  if(m.status==='wo'&&!games.length)continue;
   if(games.length){
    games.forEach(game=>players.forEach(p=>{
     const score=scoreForGame(game,m,p.id);
@@ -242,7 +244,7 @@ function standings(){
    });
   }
  }
- ranked.sort((a,b)=>Number(b.id===site.champion_id)-Number(a.id===site.champion_id)
+ ranked.sort((a,b)=>Number(a.disqualified)-Number(b.disqualified)||Number(b.id===site.champion_id)-Number(a.id===site.champion_id)
    ||b.roundReached-a.roundReached||b.matchWins-a.matchWins||b.score-a.score
    ||b.wins-a.wins||a.name.localeCompare(b.name,'pt-BR'));
  return ranked;
@@ -257,10 +259,10 @@ function renderRanking(){
  if(site.status==='registration'){
   root.innerHTML='<div class="panel ranking-empty"><span class="empty-mark">♛</span><h3>Classificação ainda não iniciada</h3><p>O ranking aparecerá após o sorteio oficial e a publicação dos resultados.</p></div>';return;
  }
- const players=standings(),final=site.status==='finished';
- const podium=players.slice(0,3).map((p,i)=>'<article class="podium-card podium-'+(i+1)+'"><div class="podium-label">'+trophyIcon(i)+'<span>'+ (i+1)+'º LUGAR</span></div><button data-player-id="'+p.id+'" class="podium-name"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button><span class="podium-stats">'+p.matchWins+' confrontos vencidos · '+formatPoints(p.score)+' pontos</span></article>').join('');
- const rows=players.map((p,i)=>'<tr><td class="rank-pos">'+(i<3?trophyIcon(i):String(i+1)+'º')+'</td><td><button class="rank-player" data-player-id="'+p.id+'"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button></td><td>'+p.roundReached+'ª</td><td>'+p.matchWins+'</td><td>'+p.wins+'</td><td>'+p.draws+'</td><td>'+p.losses+'</td><td class="rank-score">'+formatPoints(p.score)+'</td><td>'+p.colors.white+' / '+p.colors.black+'</td></tr>').join('');
- root.innerHTML='<div class="ranking-note"><strong>'+(final?'Classificação final':'Classificação provisória')+'</strong><span>'+(final?'Torneio concluído':'As posições podem mudar até o encerramento.')+'</span></div><div class="ranking-podium">'+podium+'</div><section class="panel ranking-panel"><h3>Tabela geral</h3><div class="ranking-table-scroll"><table class="ranking-table"><thead><tr><th>Pos.</th><th>Jogador</th><th>Fase</th><th>Confrontos</th><th>V</th><th>E</th><th>D</th><th>Pontos</th><th>Brancas / Pretas</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="ranking-criteria">Ordenação: campeão, fase alcançada, confrontos vencidos, pontos das partidas, vitórias e ordem alfabética como último critério. W.O. e folga não contam como partida jogada. Sem uma disputa de terceiro lugar, o bronze é determinado pelos critérios da tabela, não por uma partida específica.</p></section>';
+ const players=standings(),final=site.status==='finished',medalists=players.filter(p=>!p.disqualified).slice(0,3);
+ const podium=medalists.map((p,i)=>'<article class="podium-card podium-'+(i+1)+'"><div class="podium-label">'+trophyIcon(i)+'<span>'+ (i+1)+'º LUGAR</span></div><button data-player-id="'+p.id+'" class="podium-name"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button><span class="podium-stats">'+p.matchWins+' confrontos vencidos · '+formatPoints(p.score)+' pontos</span></article>').join('');
+ const rows=players.map((p,i)=>'<tr class="'+(p.disqualified?'ranking-disqualified':'')+'"><td class="rank-pos">'+(!p.disqualified&&medalists.some(q=>q.id===p.id)?trophyIcon(medalists.findIndex(q=>q.id===p.id)):String(i+1)+'º')+'</td><td><button class="rank-player" data-player-id="'+p.id+'"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+(p.disqualified?' · Desclassificado':'')+'</small></button></td><td>'+p.roundReached+'ª</td><td>'+p.matchWins+'</td><td>'+p.wins+'</td><td>'+p.draws+'</td><td>'+p.losses+'</td><td class="rank-score">'+formatPoints(p.score)+'</td><td>'+p.colors.white+' / '+p.colors.black+'</td></tr>').join('');
+ root.innerHTML='<div class="ranking-note"><strong>'+(final?'Classificação final':'Classificação provisória')+'</strong><span>'+(final?'Torneio concluído':'As posições podem mudar até o encerramento.')+'</span></div><div class="ranking-podium">'+podium+'</div><section class="panel ranking-panel"><h3>Tabela geral</h3><div class="ranking-table-scroll"><table class="ranking-table"><thead><tr><th>Pos.</th><th>Jogador</th><th>Fase</th><th>Confrontos</th><th>V</th><th>E</th><th>D</th><th>Pontos</th><th>Brancas / Pretas</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="ranking-criteria">Ordenação: campeão, fase alcançada, confrontos vencidos, pontos das partidas, vitórias e ordem alfabética como último critério. Desclassificados ficam fora do pódio e ao final da classificação. W.O. e folga não contam como partida jogada. Sem uma disputa de terceiro lugar, o bronze é determinado pelos critérios da tabela, não por uma partida específica.</p></section>';
 }
 
 function scoreForGame(game,match,id){
@@ -281,11 +283,18 @@ function openPlayerHistory(playerId){
   }else{
    let value='—',label='Aguardando partida';
    if(match.status==='bye')label='Folga · classificado sem jogar';
-   else if(match.status==='wo'||match.status==='double_wo'){label=match.status==='wo'?'W.O.':'W.O. duplo';value=match.winner===p.id?'1':'0'}
+   else if(match.status==='wo'||match.status==='double_wo'||match.status==='dq'){label=match.source==='disqualification'?'Desclassificação / decisão administrativa':match.status==='wo'?'W.O.':'W.O. duplo';value=match.winner===p.id?'1':'0'}
    else if(match.status==='draw_pending'){label='Empate';value='1/2'}
    else if(match.status==='complete'){label='Resultado registrado';value=match.winner===p.id?'1':'0'}
    history.push({round:match.round,index:0,score:value,name:label,rival,url:match.game_url||'',color:colorOf(match,p.id)});
   }
+ }
+ for(const match of (site.matches||[])){
+  if(match.source!=='disqualification'||(match.p1!==p.id&&match.p2!==p.id))continue;
+  const games=(site.games||[]).filter(g=>g.match_id===match.id);
+  if(!games.length)continue;
+  const rival=nameFor(match.p1===p.id?match.p2:match.p1);
+  history.push({round:match.round,index:10000,score:match.winner===p.id?'1':'0',name:'Decisão administrativa / W.O.',rival,url:'',color:null});
  }
  history.sort((a,b)=>b.round-a.round||b.index-a.index);
  const rows=history.map(h=>'<div class="history-row"><span class="history-score '+(h.score==='1'?'history-win':h.score==='0'?'history-loss':'history-draw')+'">'+h.score+'</span><div class="history-row-detail"><strong>Rodada '+h.round+' · '+esc(h.name)+'</strong><small>'+esc(h.rival?'vs '+h.rival.name+' (@'+h.rival.nick+')':'sem adversário')+'</small></div>'+(h.url?'<a href="'+esc(h.url)+'" target="_blank" rel="noopener noreferrer" class="history-open">Ver no Lichess ↗</a>':'<span class="history-no-link">Sem link</span>')+'</div>').join('');
@@ -315,13 +324,13 @@ async function loadDisqualifications(){
 function renderAdminDisqualifications(){
  const container=$('#admin-disqualifications');
  if(!container)return;
- if(site.status!=='active'){container.innerHTML='';return}
+ if(site.status==='registration'){container.innerHTML='';return}
  const current=(site.matches||[]).filter(m=>m.round===site.round);
- const candidates=(site.players||[]).filter(p=>{
+ const candidates=site.status==='active'?(site.players||[]).filter(p=>{
   if(p.disqualified)return false;
   const m=current.find(m=>m.p1===p.id||m.p2===p.id);
   return !!m && (['pending','draw_pending'].includes(m.status)||m.winner===p.id);
- });
+ }):[];
  const records=new Map(adminDisqualifications.map(d=>[d.player_id,d]));
  const disqualified=(site.players||[]).filter(p=>p.disqualified);
  let html='<section class="admin-results disqualification-panel"><div class="disqualification-head"><h3>Desclassificação de participantes</h3><p>Após o início, você pode desclassificar um jogador sem apagar partidas ou links do Lichess. O adversário recebe vitória técnica; caso haja folga, a vaga é cancelada.</p></div>';
@@ -362,9 +371,9 @@ function renderAdmin(){
  controls.innerHTML=site.status==='active'?`<div class="admin-action-row"><div><h3>Rodada ${site.round} em andamento</h3><p>Encerramento: ${localDate(site.deadline)}. Restam ${pending.length} partida(s) sem resultado. ${Date.now()>new Date(site.deadline).getTime()?'O prazo terminou: revise os W.O. pendentes.':''} Registre o vencedor ou W.O. para liberar a próxima rodada.</p></div><button id="next-round" class="btn primary" ${pending.length?'disabled':''}>${pending.length?'Aguardando partidas':'Concluir rodada →'}</button></div>`:`<div class="admin-action-row"><div><h3>Copa encerrada</h3><p>Campeão: ${site.champion_id?esc(nameFor(site.champion_id)?.name):'Não houve campeão'}. O histórico permanece público no chaveamento.</p></div></div>`;
  $('#admin-match-list').innerHTML=site.status==='active'?`<section class="admin-results"><h3>Resultados da rodada ${site.round}</h3><div class="admin-help" style="padding:15px 20px 0">Use “Buscar no Lichess” para encontrar partidas oficiais ${timeLabel()} e desempates ${tiebreakLabel()} entre os adversários. Confirme manualmente qual partida pertence ao torneio.</div>${current.map(m=>{
  const p1=nameFor(m.p1),p2=nameFor(m.p2);
- const desc=m.status==='bye'?'Classificação automática':m.status==='complete'?'Resultado registrado':m.status==='double_wo'?'Ambos eliminados':m.status==='wo'?'Vitória por W.O.':m.status==='draw_pending'?'Empate, falta desempate':'Aguardando resultado';
+ const desc=m.source==='disqualification'?'Desclassificação / decisão administrativa':m.status==='bye'?'Classificação automática':m.status==='dq'?'Desclassificação':m.status==='complete'?'Resultado registrado':m.status==='double_wo'?'Ambos eliminados':m.status==='wo'?'Vitória por W.O.':m.status==='draw_pending'?'Empate, falta desempate':'Aguardando resultado';
   const ctext=m.p2?(m.white_id?' · Brancas: @'+esc(nameFor(m.white_id)?.nick||'?'):' · Cores anteriores não registradas'):'';
- return `<article class="admin-match-card"><div class="admin-match-summary"><div><strong>${esc(p1?.nick)} ${p2?'× '+esc(p2.nick):'· FOLGA'}</strong><small>${desc}${ctext}${m.game_url?' · <a href="'+esc(m.game_url)+'" target="_blank" rel="noopener">Ver partida ↗</a>':''}</small></div>${p2?`<div class="action-buttons"><button data-edit="${m.id}">Lançar resultado</button><button class="api-btn" data-lookup="${m.id}">Buscar no Lichess ↗</button><button class="api-btn" data-edit-color="${m.id}">Definir cores</button></div>`:''}</div><div id="admin-detail-${m.id}"></div></article>`;
+ return `<article class="admin-match-card"><div class="admin-match-summary"><div><strong>${esc(p1?.nick)} ${p2?'× '+esc(p2.nick):'· FOLGA'}</strong><small>${desc}${ctext}${m.game_url?' · <a href="'+esc(m.game_url)+'" target="_blank" rel="noopener">Ver partida ↗</a>':''}</small></div>${p2?`<div class="action-buttons">${m.source==='disqualification'?'':`<button data-edit="${m.id}">Lançar resultado</button>`}${m.source==='disqualification'?'':`<button class="api-btn" data-lookup="${m.id}">Buscar no Lichess ↗</button>`}<button class="api-btn" data-edit-color="${m.id}">Definir cores</button></div>`:''}</div><div id="admin-detail-${m.id}"></div></article>`;
  }).join('')}</section>`:'';
 }
 function editColors(id){
