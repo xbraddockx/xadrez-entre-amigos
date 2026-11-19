@@ -372,17 +372,13 @@ function renderAdminDisqualifications(){
  if(!container)return;
  if(site.status==='registration'){container.innerHTML='';return}
  const current=(site.matches||[]).filter(m=>m.round===site.round);
- const candidates=site.status==='active'?(site.players||[]).filter(p=>{
-  if(p.disqualified)return false;
-  const m=current.find(m=>m.p1===p.id||m.p2===p.id);
-  return !!m && (['pending','draw_pending'].includes(m.status)||m.winner===p.id);
- }):[];
+ const candidates=site.status==='active'?(site.players||[]).filter(p=>!p.disqualified):[];
  const records=new Map(adminDisqualifications.map(d=>[d.player_id,d]));
  const disqualified=(site.players||[]).filter(p=>p.disqualified);
  let html='<section class="admin-results disqualification-panel"><div class="disqualification-head"><h3>Desclassificação de participantes</h3><p>Após o início, você pode desclassificar um jogador sem apagar partidas ou links do Lichess. O adversário recebe vitória técnica; caso haja folga, a vaga é cancelada.</p></div>';
  html+='<div class="disqualification-players">'+(candidates.length?candidates.map(p=>{
   const m=current.find(m=>m.p1===p.id||m.p2===p.id);
-  return '<div class="disqualification-person"><span><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · Rodada '+m.round+'</small></span><button class="disqualify-btn" data-disqualify-player="'+p.id+'" type="button">Desclassificar</button></div>';
+  return '<div class="disqualification-person"><span><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+(m?'Rodada '+m.round:'Já eliminado (apenas registro)')+'</small></span><button class="disqualify-btn" data-disqualify-player="'+p.id+'" type="button">Desclassificar</button></div>';
  }).join(''):'<p class="admin-help">Não há jogadores elegíveis para desclassificação nesta rodada.</p>')+'</div>';
  html+='<div id="disqualification-form-area"></div>';
  if(disqualified.length){
@@ -397,7 +393,7 @@ function renderAdminDisqualifications(){
 function showDisqualificationForm(id){
  const player=nameFor(id),area=$('#disqualification-form-area');
  if(!player||!area)return;
- area.innerHTML='<form class="admin-edit disqualification-form" data-disqualification-id="'+id+'"><h4>Desclassificar '+esc(player.name)+'</h4><p>O resultado técnico da rodada será atualizado. As partidas já jogadas continuarão no histórico. O motivo não será divulgado publicamente.</p><label for="disqualification-reason">Motivo da desclassificação</label><textarea id="disqualification-reason" name="reason" required minlength="8" maxlength="300" rows="3" placeholder="Ex.: desistência comunicada à organização"></textarea><div class="disqualification-actions"><button class="btn primary slim" type="submit">Confirmar desclassificação</button><button class="btn slim" type="button" data-cancel-disqualification="true">Cancelar</button></div></form>';
+ area.innerHTML='<form class="admin-edit disqualification-form" data-disqualification-id="'+id+'"><h4>Desclassificar '+esc(player.name)+'</h4><p>A desclassificação impedirá qualquer avanço. Confrontos ativos terão decisão técnica; jogos já concluídos ficam preservados. O motivo é privado.</p><label for="disqualification-reason">Motivo da desclassificação</label><textarea id="disqualification-reason" name="reason" required minlength="8" maxlength="300" rows="3" placeholder="Ex.: desistência comunicada à organização"></textarea><div class="disqualification-actions"><button class="btn primary slim" type="submit">Confirmar desclassificação</button><button class="btn slim" type="button" data-cancel-disqualification="true">Cancelar</button></div></form>';
  area.querySelector('textarea').focus();
 }
 
