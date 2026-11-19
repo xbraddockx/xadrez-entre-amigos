@@ -41,11 +41,13 @@ HTTP = requests.Session()
 HTTP.headers.update({"User-Agent": "XadrezEntreAmigos/1.0 (Lichess API integration; public game metadata)"})
 LICHESS_LOCK = threading.Lock()
 lichess_cooldown_until = 0.0
+lichess_last_status = None
+lichess_429_streak = 0
 RATINGS_RETRY_LOCK = threading.Lock()
 ratings_retry_after = 0.0
-# Render gratuito pode suspender o serviço por inatividade. Uma nova visita
-# agenda uma consulta pendente, sem bloquear a resposta do usuário.
-RATINGS_RETRY_INTERVAL = 120
+# Sem martelar a API em acessos repetidos ao site.
+RATINGS_RETRY_INTERVAL = 600
+RATINGS_PLAYER_RETRY_INTERVAL = timedelta(minutes=30)
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 GAME_URL_RE = re.compile(r"^https://lichess\.org/[a-zA-Z0-9]{8}(?:/[a-zA-Z0-9]+)?(?:\?.*)?$", re.I)
 recent_signups = defaultdict(deque)
@@ -111,6 +113,9 @@ class Player(Base):
     ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     manual_ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     ratings_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ratings_attempted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    ratings_error: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ratings_origin: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     disqualified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     disqualified_round: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     disqualification_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
@@ -189,6 +194,12 @@ with engine.begin() as conn:
         conn.execute(text('ALTER TABLE players ADD COLUMN manual_ratings_json TEXT'))
     if 'ratings_synced_at' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN ratings_synced_at TIMESTAMP WITH TIME ZONE'))
+    if 'ratings_attempted_at' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN ratings_attempted_at TIMESTAMP WITH TIME ZONE'))
+    if 'ratings_error' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN ratings_error VARCHAR(100)'))
+    if 'ratings_origin' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN ratings_origin VARCHAR(30)'))
     if 'disqualified_at' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN disqualified_at TIMESTAMP WITH TIME ZONE'))
     if 'disqualified_round' not in player_columns:
@@ -452,12 +463,15 @@ def get_public_user(nick: str):
         return None
 
 
-def apply_lichess_ratings(player, profile, tournament):
+def apply_lichess_ratings(player, profile, tournament, origin='server'):
     """Atualiza somente dados oficiais; não apaga os ajustes manuais."""
     perfs = ratings_from_lichess(profile)
     player.ratings_json = json.dumps(perfs, ensure_ascii=False)
     player.verified = 1
+    player.ratings_origin = origin
     player.ratings_synced_at = datetime.now(timezone.utc)
+    player.ratings_attempted_at = player.ratings_synced_at
+    player.ratings_error = None
     player.rating_official = (perfs.get('rapid') or {}).get('rating')
     speed = speed_for_clock(tournament.minutes, tournament.increment)
     entry = stored_ratings(player).get(speed) or {}
@@ -1066,6 +1080,9 @@ def update_player_identity(player_id: int, data: PlayerIdentityIn, request: Requ
                 player.ratings_json = None
                 player.manual_ratings_json = None
                 player.ratings_synced_at = None
+                player.ratings_attempted_at = None
+                player.ratings_error = None
+                player.ratings_origin = None
                 player.rating_official = None
                 player.rating_reported = 1500
                 player.rating = 1500
