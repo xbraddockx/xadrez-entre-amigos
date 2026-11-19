@@ -6,6 +6,9 @@ let newEditionOpen = false;
 let preview = {pairs:[],byes:[]};
 let admin = false;
 let adminDisqualifications = [];
+let importCandidates = null;
+let importSourceId = 0;
+let importSelected = new Set();
 let toastTimer;
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -306,7 +309,7 @@ function closePlayerHistory(){
 }
 
 async function checkAdmin(){
- try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin){await loadDisqualifications();renderAdmin()}else adminDisqualifications=[];if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
+ try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin){await Promise.all([loadDisqualifications(),loadImportablePlayers()]);renderAdmin()}else adminDisqualifications=[];if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
 }
 function renderAdminColors(){
  const area=$('#admin-colors');if(!area)return;
@@ -315,6 +318,49 @@ function renderAdminColors(){
  area.innerHTML='<section class="admin-results" style="margin-top:20px"><h3>Cores de confrontos anteriores</h3><p class="admin-help" style="padding:0 20px 12px">Confrontos realizados antes da atualização não receberam cores fictícias. Informe quem realmente jogou de brancas para completar o histórico.</p>'+old.map(m=>'<article class="admin-match-card"><div class="admin-match-summary"><div><strong>Rodada '+m.round+' · '+esc(nameFor(m.p1)?.nick)+' × '+esc(nameFor(m.p2)?.nick)+'</strong><small>'+(m.white_id?'Brancas: @'+esc(nameFor(m.white_id)?.nick||'?'):'Cor não registrada')+'</small></div><button class="api-btn" data-edit-color="'+m.id+'">Definir cores</button></div><div id="admin-detail-'+m.id+'"></div></article>').join('')+'</section>';
 }
 
+
+
+async function loadImportablePlayers(){
+ if(!admin){importCandidates=null;return}
+ try{
+  importCandidates=await api('/api/admin/importable-players');
+  if(!importCandidates.available){importSourceId=0;importSelected.clear();return}
+  if(!importCandidates.editions.some(e=>e.id===importSourceId)){
+   importSourceId=importCandidates.editions[0]?.id||0;
+   importSelected.clear();
+  }
+ }catch(e){importCandidates=null;toast(e.message)}
+}
+function importListForSource(){
+ return (importCandidates?.players||[]).filter(p=>p.archive_id===importSourceId);
+}
+function renderAdminImport(){
+ const root=$('#admin-import');if(!root)return;
+ if(site.status!=='registration'){root.innerHTML='';return}
+ const data=importCandidates;
+ if(!data){
+  root.innerHTML='<section class="admin-config import-player-panel"><h3>Reaproveitar participantes anteriores</h3><p>Entre novamente no painel ou atualize a lista de edições para selecionar jogadores já cadastrados.</p><button type="button" class="btn slim ghost" data-reload-import="true">Carregar participantes anteriores</button></section>';
+  return;
+ }
+ if(!data.editions.length){
+  root.innerHTML='<section class="admin-config import-player-panel"><h3>Reaproveitar participantes anteriores</h3><p>Após concluir e arquivar a primeira edição, os jogadores ficarão disponíveis aqui para novos torneios.</p></section>';
+  return;
+ }
+ const currentKeys=new Set((site.players||[]).map(p=>p.nick.toLowerCase()));
+ const options=data.editions.map(e=>'<option value="'+e.id+'"'+(e.id===importSourceId?' selected':'')+'>'+esc(e.title)+' ('+e.count+' inscritos)</option>').join('');
+ const players=importListForSource();
+ const eligible=players.filter(p=>!p.already_registered&&!currentKeys.has(p.nick.toLowerCase()));
+ const eligibleKeys=new Set(eligible.map(p=>p.nick.toLowerCase()));
+ for(const key of importSelected){if(!eligibleKeys.has(key))importSelected.delete(key)}
+ const list=players.map(p=>{
+  const key=p.nick.toLowerCase();
+  const duplicate=p.already_registered||currentKeys.has(key);
+  const isChecked=!duplicate&&importSelected.has(key);
+  return '<label class="import-person'+(duplicate?' import-existing':'')+'"><input type="checkbox" data-import-nick="'+esc(p.nick)+'"'+(duplicate?' disabled':'')+(isChecked?' checked':'')+'/><span class="import-person-details"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></span><span class="import-person-status">'+(duplicate?'Já inscrito':isChecked?'Selecionado':'Disponível')+'</span></label>';
+ }).join('');
+ const hint=players.length?list:'<p class="admin-help">Esta edição não tem participantes disponíveis.</p>';
+ root.innerHTML='<section class="admin-config import-player-panel"><div class="admin-config-head"><div><h3>Transferir participantes de outras edições</h3><p>Escolha uma competição anterior e marque quem deseja reinscrever. O torneio atual continuará aceitando novos jogadores pelo formulário público. Jogadores já cadastrados não poderão ser duplicados.</p></div></div><form id="import-form"><label class="import-source-label" for="import-source">Torneio de origem</label><select id="import-source" name="archive_id">'+options+'</select><div class="import-selection-toolbar"><span>'+eligible.length+' disponível(is) · '+importSelected.size+' selecionado(s)</span><div><button type="button" data-import-all="true">Selecionar todos</button><button type="button" data-import-none="true">Limpar seleção</button></div></div><div class="import-list">'+hint+'</div><div class="settings-actions"><button type="submit" class="btn primary slim"'+(!importSelected.size?' disabled':'')+'>Transferir '+importSelected.size+' jogador(es)</button><small>Os ratings armazenados serão reaproveitados. Eles podem estar desatualizados; ratings de outras modalidades não serão apresentados como se fossem da categoria atual.</small></div></form></section>';
+}
 
 async function loadDisqualifications(){
  if(!admin){adminDisqualifications=[];return}
@@ -361,6 +407,7 @@ function renderAdmin(){
  renderRegulationEditor();
  renderAdminColors();
  renderAdminDisqualifications();
+ renderAdminImport();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
@@ -476,10 +523,13 @@ $('#login-form').addEventListener('submit',async e=>{
  catch(err){msg.className='form-message error';msg.textContent=err.message}
 });
 $('#logout-button').addEventListener('click',()=>doAction('/api/admin/logout',{method:'POST'}).then(()=>{admin=false;checkAdmin()}));
-$('#admin-dashboard').addEventListener('click',e=>{
+$('#admin-dashboard').addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.id==='download-backup'){downloadBackup();return;}
  if(b.id==='toggle-new'){newEditionOpen=!newEditionOpen;renderAdmin();return;}
+ if(b.dataset.reloadImport){await loadImportablePlayers();renderAdminImport();return;}
+ if(b.dataset.importAll){importSelected=new Set(importListForSource().filter(p=>!p.already_registered&&!site.players.some(q=>q.nick.toLowerCase()===p.nick.toLowerCase())).map(p=>p.nick.toLowerCase()));renderAdminImport();return;}
+ if(b.dataset.importNone){importSelected.clear();renderAdminImport();return;}
  if(b.dataset.disqualifyPlayer){showDisqualificationForm(Number(b.dataset.disqualifyPlayer));return}
  if(b.dataset.cancelDisqualification){$('#disqualification-form-area').innerHTML='';return}
  if(b.id==='start-tourney')doAction('/api/admin/start',{method:'POST'},'Encerrar definitivamente as inscrições e sortear a primeira rodada?');
@@ -490,6 +540,12 @@ $('#admin-dashboard').addEventListener('click',e=>{
   if(b.dataset.editColor)editColors(Number(b.dataset.editColor));
  if(b.dataset.confirmGame)doAction(`/api/admin/matches/${b.dataset.match}/use-game`,{method:'POST',body:JSON.stringify({game_id:b.dataset.confirmGame})},'Confirmar que esta partida pertence ao torneio e lançar o resultado?');
 });
+$('#admin-dashboard').addEventListener('change',e=>{
+ const source=e.target.closest('#import-source');
+ if(source){importSourceId=Number(source.value);importSelected.clear();renderAdminImport();return}
+ const checkbox=e.target.closest('input[data-import-nick]');
+ if(checkbox){const key=checkbox.dataset.importNick.toLowerCase();if(checkbox.checked)importSelected.add(key);else importSelected.delete(key);renderAdminImport()}
+});
 $('#admin-dashboard').addEventListener('submit',async e=>{
  const disqualificationForm=e.target.closest('form[data-disqualification-id]');
  if(disqualificationForm){
@@ -498,6 +554,19 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
   const p=nameFor(id),reason=String(new FormData(disqualificationForm).get('reason')||'').trim();
   if(reason.length<8){toast('Informe um motivo com pelo menos 8 caracteres.');return}
   await doAction('/api/admin/players/'+id+'/disqualify',{method:'POST',body:JSON.stringify({reason})},'Confirmar a desclassificação de '+(p?.name||'este jogador')+'? A classificação da rodada será alterada, mas as partidas permanecerão no histórico.');
+  return;
+ }
+ const importer=e.target.closest('#import-form');
+ if(importer){
+  e.preventDefault();
+  const nicks=importListForSource().filter(p=>importSelected.has(p.nick.toLowerCase())).map(p=>p.nick);
+  if(!nicks.length){toast('Selecione pelo menos um jogador.');return}
+  if(!confirm('Reinscrever '+nicks.length+' jogador(es) na edição atual?'))return;
+  try{
+   const response=await api('/api/admin/import-players',{method:'POST',body:JSON.stringify({archive_id:importSourceId,nicks})});
+   toast(response.message+(response.skipped?.length?' Alguns nicks já estavam inscritos ou foram ignorados.':''));
+   importSelected.clear();await loadImportablePlayers();await refresh();
+  }catch(err){toast(err.message)}
   return;
  }
  const colorForm=e.target.closest('form[data-color-form]');
@@ -515,7 +584,7 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
  }
  const next=e.target.closest('#new-tournament-form');
  if(next){e.preventDefault();if(!confirm('Criar nova edição? Os dados do torneio anterior serão preservados no histórico e as inscrições da nova edição começarão vazias.'))return;
-  try{const r=await api('/api/admin/tournaments/new',{method:'POST',body:JSON.stringify(settingsPayload(next))});toast(r.message);archiveId=0;newEditionOpen=false;await refresh();}
+  try{const r=await api('/api/admin/tournaments/new',{method:'POST',body:JSON.stringify(settingsPayload(next))});toast(r.message);archiveId=0;newEditionOpen=false;await loadImportablePlayers();await refresh();}
   catch(err){toast(err.message)}
   return;
  }
