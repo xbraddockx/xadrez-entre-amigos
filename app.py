@@ -871,6 +871,34 @@ def save_regulation(data: RegulationUpdateIn, request: Request):
 
 
 
+class DeleteArchivedTournamentIn(BaseModel):
+    confirmation: str = Field(min_length=7, max_length=7)
+
+
+@app.delete('/api/admin/tournaments/archives/{archive_id}')
+def delete_archived_tournament(archive_id: int, data: DeleteArchivedTournamentIn, request: Request):
+    """Exclui somente o snapshot de uma edição arquivada.
+
+    Nunca exclui o torneio ativo, seus inscritos, partidas nem resultados.
+    Os participantes copiados para outras edições permanecem registrados.
+    """
+    require_admin(request)
+    if archive_id < 1:
+        fail(400, 'Não é permitido excluir a edição atual.')
+    if data.confirmation != 'EXCLUIR':
+        fail(400, 'Digite EXCLUIR para confirmar a remoção definitiva.')
+    with Session.begin() as db:
+        archive = db.get(TournamentArchive, archive_id)
+        if archive is None:
+            fail(404, 'A edição arquivada não foi encontrada ou já foi excluída.')
+        title = archive.title
+        db.delete(archive)
+    return {
+        'message': 'Edição arquivada excluída definitivamente.',
+        'deleted_id': archive_id, 'deleted_title': title,
+    }
+
+
 @app.get('/api/admin/importable-players')
 def list_importable_players(request: Request):
     require_admin(request)
