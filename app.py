@@ -491,7 +491,7 @@ def homepage():
 
 @app.get('/static/{filename}')
 def static_file(filename: str):
-    if filename not in ('app.css', 'app.js', 'favicon.svg'):
+    if filename not in ('app.css', 'app.js', 'favicon.svg', 'trophy.svg'):
         fail(404, "Arquivo não encontrado")
     return FileResponse(BASE / 'static' / filename)
 
