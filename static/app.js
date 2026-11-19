@@ -663,6 +663,7 @@ $('#admin-dashboard').addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.id==='download-backup'){downloadBackup();return;}
  if(b.dataset.reloadRatings){await loadAdminRatings();renderAdminRatings();return;}
+ if(b.dataset.togglePlayer){ratingEditorId=ratingEditorId===Number(b.dataset.togglePlayer)?0:Number(b.dataset.togglePlayer);renderAdminRatings();return;}
  if(b.dataset.refreshRating){await retryRatingManually(Number(b.dataset.refreshRating));return;}
  if(b.dataset.editRating){ratingEditorId=Number(b.dataset.editRating);renderAdminRatings();return;}
  if(b.dataset.cancelRating){ratingEditorId=0;renderAdminRatings();return;}
@@ -689,6 +690,28 @@ $('#admin-dashboard').addEventListener('change',e=>{
  if(checkbox){const key=checkbox.dataset.importNick.toLowerCase();if(checkbox.checked)importSelected.add(key);else importSelected.delete(key);renderAdminImport()}
 });
 $('#admin-dashboard').addEventListener('submit',async e=>{
+ const identityForm=e.target.closest('form[data-player-identity]');
+ if(identityForm){
+  e.preventDefault();
+  if(!identityForm.reportValidity())return;
+  const id=Number(identityForm.dataset.playerIdentity),fd=new FormData(identityForm);
+  const player=adminRatingData?.players?.find(x=>x.id===id);
+  if(!player){toast('Participante não encontrado. Atualize a lista.');return;}
+  const name=String(fd.get('name')||'').trim().replace(/\s+/g,' ');
+  const nick=String(fd.get('nick')||'').trim().replace(/^@+/,'');
+  if(name===player.name&&nick===player.nick){toast('Nenhuma alteração foi feita.');return;}
+  const differentNick=nick.toLowerCase()!==player.nick.toLowerCase();
+  if(differentNick&&!confirm('Alterar o nick de @'+player.nick+' para @'+nick+'? Os ratings antigos serão apagados e o sistema tentará consultar a nova conta. Os resultados e links de partidas serão mantidos.'))return;
+  const button=identityForm.querySelector('[type="submit"]');
+  button.disabled=true;
+  try{
+   const result=await api('/api/admin/players/'+id+'/identity',{method:'PUT',body:JSON.stringify({name,nick})});
+   toast(result.message||'Dados atualizados.');
+   await refresh();
+  }catch(error){toast(error.message)}
+  finally{if(button.isConnected)button.disabled=false;}
+  return;
+ }
  const ratingForm=e.target.closest('form[data-rating-player]');
  if(ratingForm){
   e.preventDefault();
