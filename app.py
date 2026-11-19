@@ -881,7 +881,8 @@ def list_importable_players(request: Request):
                 seen.add(key)
                 choices.append({
                     'archive_id': archive.id, 'nick': nick, 'name': str(item.get('name', '')),
-                    'already_registered': key in existing
+                    'already_registered': key in existing,
+                    'disqualified_in_source': bool(item.get('disqualified', False))
                 })
         return {'available': True, 'editions': editions, 'players': choices,
                 'registered_count': len(existing)}
