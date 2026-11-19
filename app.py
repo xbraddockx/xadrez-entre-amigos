@@ -995,6 +995,96 @@ def delete_archived_tournament(archive_id: int, data: DeleteArchivedTournamentIn
     }
 
 
+class ManualRatingsIn(BaseModel):
+    classical: Optional[int] = Field(default=None, ge=400, le=3500)
+    rapid: Optional[int] = Field(default=None, ge=400, le=3500)
+    blitz: Optional[int] = Field(default=None, ge=400, le=3500)
+
+
+def admin_rating_data(p):
+    official = lichess_ratings(p)
+    manual = manual_ratings(p)
+    data = {}
+    for category in ('classical', 'rapid', 'blitz'):
+        source = 'manual' if category in manual else ('lichess' if category in official else 'none')
+        item = stored_ratings(p).get(category) or {}
+        data[category] = {
+            'rating': item.get('rating'), 'source': source,
+            'provisional': bool(item.get('prov', False))
+        }
+    return {
+        'id': p.id, 'name': p.name, 'nick': p.nick, 'verified': p.verified,
+        'synced_at': iso(p.ratings_synced_at), 'ratings': data, 'manual': manual
+    }
+
+
+@app.get('/api/admin/ratings')
+def list_admin_ratings(request: Request):
+    require_admin(request)
+    with Session() as db:
+        tournament = db.get(Tournament, 1)
+        players = db.scalars(select(Player).order_by(Player.name, Player.id)).all()
+        return {
+            'category': speed_for_clock(tournament.minutes, tournament.increment),
+            'players': [admin_rating_data(p) for p in players]
+        }
+
+
+@app.put('/api/admin/players/{player_id}/ratings')
+def set_manual_ratings(player_id: int, data: ManualRatingsIn, request: Request):
+    """Campos vazios retiram o ajuste manual, recuperando o rating oficial."""
+    require_admin(request)
+    with Session.begin() as db:
+        player = db.get(Player, player_id)
+        if not player:
+            fail(404, 'Jogador não encontrado nesta edição.')
+        manual = manual_ratings(player)
+        for category in ('classical', 'rapid', 'blitz'):
+            value = getattr(data, category)
+            if value is None:
+                manual.pop(category, None)
+            else:
+                manual[category] = value
+        player.manual_ratings_json = json.dumps(manual) if manual else None
+        t = db.get(Tournament, 1)
+        selected = stored_ratings(player).get(speed_for_clock(t.minutes, t.increment)) or {}
+        player.rating = selected.get('rating') or 1500
+        player.provisional = int(bool(selected.get('prov', False)))
+    return {'message': 'Ratings manuais salvos. Valores vazios voltam a usar o Lichess, quando disponível.'}
+
+
+@app.post('/api/admin/players/{player_id}/refresh-ratings')
+def refresh_player_lichess_rating(player_id: int, request: Request):
+    """O administrador pode tentar consultar novamente sem remover a inscrição."""
+    require_admin(request)
+    with Session() as db:
+        player = db.get(Player, player_id)
+        if player is None:
+            fail(404, 'Jogador não encontrado nesta edição.')
+        nick = player.nick
+    try:
+        profile = get_public_user(nick)
+    except HTTPException as exc:
+        if exc.status_code != 400:
+            raise
+        with Session.begin() as db:
+            player = db.get(Player, player_id)
+            if player and player.verified != 1:
+                player.verified = -1
+        return {'message': 'O Lichess informou que esse nick não existe. Confira o cadastro.',
+                'not_found': True}
+    if profile is None:
+        return {'message': 'A consulta ainda não foi possível. A inscrição e os ratings manuais foram preservados.',
+                'pending': True}
+    with Session.begin() as db:
+        player = db.get(Player, player_id)
+        if player is None:
+            fail(404, 'Jogador não encontrado nesta edição.')
+        apply_lichess_ratings(player, profile, db.get(Tournament, 1))
+    return {'message': 'Ratings do Lichess atualizados. Ajustes manuais foram mantidos.',
+            'pending': False}
+
+
 @app.get('/api/admin/importable-players')
 def list_importable_players(request: Request):
     require_admin(request)
