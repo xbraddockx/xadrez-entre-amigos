@@ -471,6 +471,8 @@ $('#admin-dashboard').addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.id==='download-backup'){downloadBackup();return;}
  if(b.id==='toggle-new'){newEditionOpen=!newEditionOpen;renderAdmin();return;}
+ if(b.dataset.disqualifyPlayer){showDisqualificationForm(Number(b.dataset.disqualifyPlayer));return}
+ if(b.dataset.cancelDisqualification){$('#disqualification-form-area').innerHTML='';return}
  if(b.id==='start-tourney')doAction('/api/admin/start',{method:'POST'},'Encerrar definitivamente as inscrições e sortear a primeira rodada?');
  if(b.id==='next-round')doAction('/api/admin/next-round',{method:'POST'},'Confirmar todos os resultados e iniciar a próxima rodada?');
  if(b.dataset.deletePlayer)doAction(`/api/admin/players/${b.dataset.deletePlayer}`,{method:'DELETE'},'Remover este jogador da inscrição?');
@@ -480,6 +482,15 @@ $('#admin-dashboard').addEventListener('click',e=>{
  if(b.dataset.confirmGame)doAction(`/api/admin/matches/${b.dataset.match}/use-game`,{method:'POST',body:JSON.stringify({game_id:b.dataset.confirmGame})},'Confirmar que esta partida pertence ao torneio e lançar o resultado?');
 });
 $('#admin-dashboard').addEventListener('submit',async e=>{
+ const disqualificationForm=e.target.closest('form[data-disqualification-id]');
+ if(disqualificationForm){
+  e.preventDefault();
+  const id=Number(disqualificationForm.dataset.disqualificationId);
+  const p=nameFor(id),reason=String(new FormData(disqualificationForm).get('reason')||'').trim();
+  if(reason.length<8){toast('Informe um motivo com pelo menos 8 caracteres.');return}
+  await doAction('/api/admin/players/'+id+'/disqualify',{method:'POST',body:JSON.stringify({reason})},'Confirmar a desclassificação de '+(p?.name||'este jogador')+'? A classificação da rodada será alterada, mas as partidas permanecerão no histórico.');
+  return;
+ }
  const colorForm=e.target.closest('form[data-color-form]');
  if(colorForm){e.preventDefault();await doAction('/api/admin/matches/'+colorForm.dataset.colorForm+'/color',{method:'PUT',body:JSON.stringify({white_id:Number(new FormData(colorForm).get('white_id'))})});return;}
  const config=e.target.closest('#settings-form');
