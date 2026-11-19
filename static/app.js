@@ -39,6 +39,48 @@ function tab(name){
  if(name==='chaves') renderBracket();
  window.scrollTo({top:0,behavior:'smooth'});
 }
+
+function ruleTokens(){
+ const s=site.settings||{};
+ return {title:s.title||'Torneio',minutes:s.minutes??10,increment:s.increment??0,time_control:timeLabel(),
+  round_days:s.round_days??5,contact_day:s.contact_day??2,wo_minutes:s.wo_minutes??15,
+  tiebreak_time_control:String(s.tiebreak_minutes??5)+'+'+String(s.tiebreak_increment??3)};
+}
+function expandRegulation(value){
+ const values=ruleTokens();
+ return String(value||'').replace(/\{([a-z_]+)\}/g,(original,key)=>Object.prototype.hasOwnProperty.call(values,key)?String(values[key]):original);
+}
+function renderRegulation(){
+ const root=$('#regulation-body');root.replaceChildren();
+ $('#regulation-name').textContent='REGULAMENTO DO TORNEIO MATA-MATA DE XADREZ';
+ for(const part of (site.settings?.regulation_sections||[])){
+  const article=document.createElement('article');article.className='regulation-section';
+  const title=document.createElement('h4');title.textContent=part.title;article.appendChild(title);
+  let ul=null;
+  for(const line of expandRegulation(part.body).split(/\r?\n/)){
+   if(!line.trim())continue;
+   if(line.trim().startsWith('- ')){
+    if(!ul){ul=document.createElement('ul');article.appendChild(ul)}
+    const item=document.createElement('li');item.textContent=line.trim().slice(2);ul.appendChild(item);
+   }else{ul=null;const p=document.createElement('p');p.textContent=line;article.appendChild(p)}
+  }
+  root.appendChild(article);
+ }
+}
+function renderRegulationEditor(){
+ const root=$('#admin-regulation'),parts=site.settings?.regulation_sections||[];
+ const sig=JSON.stringify(parts);if(root.dataset.signature===sig)return;root.dataset.signature=sig;
+ let html='<section class="admin-config regulation-editor"><div class="admin-config-head"><div><h3>Editar regulamento oficial</h3><p>As informações entre chaves são preenchidas automaticamente. Exemplos: <code>{round_days}</code>, <code>{time_control}</code>, <code>{tiebreak_time_control}</code> e <code>{wo_minutes}</code>.</p>';
+ if(site.status!=='registration')html+='<p class="rules-alert">Atenção: evite alterar regras competitivas após o início da edição.</p>';
+ html+='</div></div><form id="regulation-form">';
+ parts.forEach((part,i)=>{
+  html+='<div class="regulation-edit-row"><label for="rule-title-'+i+'">Título da seção '+(i+1)+'</label><input id="rule-title-'+i+'" name="title-'+i+'" required minlength="2" maxlength="120" value="'+esc(part.title)+'"/>';
+  html+='<label for="rule-body-'+i+'">Regras (uma por linha, iniciada com -)</label><textarea id="rule-body-'+i+'" name="body-'+i+'" rows="'+Math.min(9,Math.max(3,part.body.split('\n').length+1))+'" required minlength="5" maxlength="3500">'+esc(part.body)+'</textarea></div>';
+ });
+ html+='<div class="settings-actions"><button class="btn primary slim" type="submit">Salvar regulamento</button><small>As alterações aparecerão no site público.</small></div></form></section>';
+ root.innerHTML=html;
+}
+
 function phaseName(){return site.status==='registration'?'Inscrições':site.status==='finished'?'Finalizado':`Rodada ${site.round}`}
 function render(){
  if(!site)return;
@@ -57,9 +99,7 @@ function render(){
  const desired=editions.map(x=>`<option value="${x.id}">${esc(x.title)}${x.current?' · atual':' · arquivo'}</option>`).join('');
  if(selector.innerHTML!==desired)selector.innerHTML=desired;
  selector.value=String(archiveId);
- $('#rule-time').textContent=`Partidas de ${settings.minutes||10} minuto(s) + ${settings.increment??0} segundo(s) por lance (${timeLabel()}). Em caso de empate, jogam novamente no mesmo ritmo, alternando as cores, até haver vencedor.`;
- $('#rule-deadline').textContent=`Cada rodada dura no máximo ${settings.round_days||5} dia(s) corridos. Os adversários devem iniciar contato até o ${settings.contact_day||2}º dia e concluir a partida no prazo divulgado.`;
- $('#rule-wo').textContent=`Ausência após ${settings.wo_minutes??15} minuto(s) de tolerância pode resultar em W.O. Sem partida e sem responsável identificável, ambos podem ser eliminados.`;
+ renderRegulation();
  $('#stat-players').textContent=site.players.length;
  $('#stat-phase').textContent=phaseName();
  $('#stat-time').textContent=site.status==='active'?'Até '+localDate(site.deadline):site.status==='finished'?'Encerrado':`${settings.round_days||5} dias`;
@@ -112,6 +152,7 @@ async function checkAdmin(){
 function renderAdmin(){
  if(!site||!admin)return;
  renderAdminSettings();
+ renderRegulationEditor();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)} · ${rating(p)} ${p.rating_official!==null?'(oficial)':'(informado)'}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
@@ -154,11 +195,13 @@ function settingsFields(s={},prefix='settings',freeze=false){
   ${f('Dias por rodada','round_days',s.round_days??5,'number',`min="1" max="30" required ${freeze?'disabled':''}`)}
   ${f('Contatar adversário até o dia','contact_day',s.contact_day??2,'number',`min="1" max="30" required ${freeze?'disabled':''}`)}
   ${f('Tolerância para W.O. (minutos)','wo_minutes',s.wo_minutes??15,'number',`min="0" max="60" required ${freeze?'disabled':''}`)}
+  ${f('Minutos no desempate','tiebreak_minutes',s.tiebreak_minutes??5,'number',`min="1" max="60" required ${freeze?'disabled':''}`)}
+  ${f('Incremento do desempate (segundos)','tiebreak_increment',s.tiebreak_increment??3,'number',`min="0" max="60" required ${freeze?'disabled':''}`)}
  </div>`;
 }
 function settingsPayload(form){
  const s=Object.fromEntries(new FormData(form).entries());
- for(const key of ['minutes','increment','round_days','contact_day','wo_minutes']){
+ for(const key of ['minutes','increment','round_days','contact_day','wo_minutes','tiebreak_minutes','tiebreak_increment']){
    if(!(key in s))s[key]=site.settings[key];
    s[key]=Number(s[key]);
  }
@@ -223,6 +266,15 @@ $('#admin-dashboard').addEventListener('click',e=>{
 $('#admin-dashboard').addEventListener('submit',async e=>{
  const config=e.target.closest('#settings-form');
  if(config){e.preventDefault();await doAction('/api/admin/settings',{method:'PUT',body:JSON.stringify(settingsPayload(config))});return;}
+ const regulation=e.target.closest('#regulation-form');
+ if(regulation){
+  e.preventDefault();
+  const data=new FormData(regulation);
+  const sections=Array.from({length:7},(_,i)=>({title:String(data.get('title-'+i)||'').trim(),body:String(data.get('body-'+i)||'').trim()}));
+  if(site.status!=='registration'&&!confirm('Atualizar o regulamento de uma edição já iniciada?'))return;
+  await doAction('/api/admin/regulation',{method:'PUT',body:JSON.stringify({sections})});
+  return;
+ }
  const next=e.target.closest('#new-tournament-form');
  if(next){e.preventDefault();if(!confirm('Criar nova edição? Os dados do torneio anterior serão preservados no histórico e as inscrições da nova edição começarão vazias.'))return;
   try{const r=await api('/api/admin/tournaments/new',{method:'POST',body:JSON.stringify(settingsPayload(next))});toast(r.message);archiveId=0;newEditionOpen=false;await refresh();}
