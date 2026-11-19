@@ -153,3 +153,60 @@ body.modal-open{overflow:hidden}
 .ranking-empty h3{font-size:18px}.ranking-empty p{font-size:12px;color:#697b82}
 @media(max-width:650px){.ranking-podium{gap:8px}.podium-card{padding:14px 7px;gap:9px}.podium-label{font-size:9px;letter-spacing:0}.podium-label .ranking-trophy{width:43px;height:43px}.podium-name strong{font-size:12px}.podium-name small,.podium-stats{font-size:10px}.ranking-panel{padding:14px}.ranking-note{padding:13px}}
 @media(max-width:390px){.ranking-podium{grid-template-columns:1fr}.podium-card{flex-direction:row;text-align:left;align-items:center;gap:12px}.podium-label{flex:0 0 66px}.podium-name{text-align:left;flex:1}.podium-stats{max-width:90px;text-align:right}}
+
+
+/* Reinscrição de jogadores de edições anteriores */
+.import-player-panel,.disqualification-panel{margin-top:22px}
+.import-player-panel .admin-config-head{padding-bottom:14px}
+.import-source-label{font-size:12px;font-weight:800;color:#3b5061;display:block;margin:0 0 9px}
+#import-source{width:100%;background:#fff;border:1px solid #d8dfdb;border-radius:10px;padding:12px 14px;font-size:13px;color:#223b4a}
+#import-form{padding:12px 22px 20px}
+.import-selection-toolbar{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center;border-bottom:1px solid #e2e7e3;padding:16px 0;font-size:12px;color:#667b7e}
+.import-selection-toolbar div{display:flex;gap:12px}
+.import-selection-toolbar button{border:none;background:transparent;color:#8e6e38;text-decoration:underline;text-underline-offset:3px;cursor:pointer;font:inherit;font-size:12px}
+.import-list{max-height:330px;overflow:auto;border:1px solid #e6eae5;border-radius:10px;margin:14px 0;background:#fff}
+.import-person{display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #edf0ec;cursor:pointer;min-width:0}
+.import-person:last-child{border-bottom:0}.import-person:hover{background:#f6f8f5}
+.import-person input{accent-color:#3b876e;flex-shrink:0;width:17px;height:17px}
+.import-person-details{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.import-person-details strong{font-size:12px;overflow-wrap:anywhere}
+.import-person-details small{font-size:11px;color:#76888c;overflow-wrap:anywhere}
+.import-person-status{font-size:10px;color:#487864;white-space:nowrap}
+.import-existing{cursor:default;opacity:.57;background:#f8f9f7}
+.import-existing:hover{background:#f8f9f7}
+.import-existing .import-person-status{color:#77848a}
+#import-form .settings-actions{margin-top:13px}
+#import-form .settings-actions small{line-height:1.6}
+.disqualification-head{padding:22px 22px 10px}
+.disqualification-head h3{font-size:18px;margin:0 0 8px}
+.disqualification-head p,.disqualification-form p{font-size:12px;line-height:1.7;color:#657b83}
+.disqualification-players{padding:0 22px 18px}
+.disqualification-person{display:flex;justify-content:space-between;align-items:center;gap:12px;border-top:1px solid #e6eae6;padding:13px 0}
+.disqualification-person span{min-width:0;display:flex;flex-direction:column;gap:4px}
+.disqualification-person strong{font-size:12px}
+.disqualification-person small{font-size:11px;color:#85929c;overflow-wrap:anywhere}
+.disqualify-btn{border:1px solid #d9b5a7;background:#fff7f5;color:#95483e;border-radius:8px;cursor:pointer;padding:10px 12px;font-size:11px;font-weight:800;white-space:nowrap}
+.disqualify-btn:hover{background:#ffede8}
+#disqualification-form-area:empty{display:none}
+.disqualification-form{margin:0 22px 22px!important;border:1px solid #e8d6c9;border-radius:11px;padding:18px}
+.disqualification-form h4{margin:0 0 10px}
+.disqualification-form textarea{width:100%;min-height:95px;resize:vertical;border:1px solid #dce4e0;border-radius:8px;padding:10px;color:#233b49;font:inherit;font-size:12px}
+.disqualification-actions{display:flex;gap:10px;flex-wrap:wrap;padding-top:12px}
+.disqualification-history{margin:12px 22px 22px;border-top:1px solid #e4e9e5;padding-top:15px}
+.disqualification-history h4{margin:0 0 12px;color:#415a65}
+.disqualification-record{padding:11px 0;border-bottom:1px solid #e8ece8;display:grid;gap:5px;font-size:12px}
+.disqualification-record span{font-size:11px;color:#788b91}
+.disqualification-record p{margin:0;font-size:11px;color:#596e75;overflow-wrap:anywhere}
+.tree-player-disqualified{opacity:.72;background:#fff8f5}
+.tree-player-disqualified .tree-player-meta strong{text-decoration:line-through;text-decoration-thickness:1px}
+.ranking-disqualified{background:#f9f4f2;color:#866961}
+.ranking-disqualified .rank-player small{color:#ab6b56}
+@media(max-width:600px){
+ #import-form,.disqualification-players{padding-left:14px;padding-right:14px}
+ .disqualification-head{padding:20px 14px 8px}
+ .import-person{padding:12px 9px;gap:8px}
+ .import-selection-toolbar{align-items:flex-start}
+ .disqualification-form{margin:0 12px 15px!important}
+ .disqualification-history{margin-left:14px;margin-right:14px}
+ .import-person-status{font-size:9px}
+}
