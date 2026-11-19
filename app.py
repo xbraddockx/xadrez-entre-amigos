@@ -437,16 +437,18 @@ def lichess_get(url, **kwargs):
 def get_public_user(nick: str):
     """None when Lichess is temporarily unreachable, 404 if user does not exist."""
     try:
-        resp = lichess_get(f"https://lichess.org/api/user/{nick}", timeout=(4, 7))
+        resp = lichess_get(f"https://lichess.org/api/user/{nick}", timeout=(3, 4))
         if resp is None:
+            logging.info('Lichess em pausa por limite de requisições.')
             return None
         if resp.status_code == 404:
             fail(400, "Esse usuário não existe no Lichess. Confira o nick.")
-        if resp.status_code in (429, 500, 502, 503, 504):
+        if resp.status_code != 200:
+            logging.warning('Consulta pública ao Lichess retornou HTTP %s.', resp.status_code)
             return None
-        resp.raise_for_status()
         return resp.json()
-    except requests.RequestException:
+    except (requests.RequestException, ValueError) as error:
+        logging.warning('Falha na consulta do Lichess (%s).', type(error).__name__)
         return None
 
 
