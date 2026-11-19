@@ -449,6 +449,58 @@ def get_public_user(nick: str):
         return None
 
 
+def apply_lichess_ratings(player, profile, tournament):
+    """Atualiza somente dados oficiais; não apaga os ajustes manuais."""
+    perfs = ratings_from_lichess(profile)
+    player.ratings_json = json.dumps(perfs, ensure_ascii=False)
+    player.verified = 1
+    player.ratings_synced_at = datetime.now(timezone.utc)
+    player.rating_official = (perfs.get('rapid') or {}).get('rating')
+    speed = speed_for_clock(tournament.minutes, tournament.increment)
+    entry = (perfs.get(speed) or {})
+    player.rating = entry.get('rating') or 1500
+    player.provisional = int(bool(entry.get('prov', False)))
+
+
+def retry_one_pending_rating():
+    """Executa após uma visita ao site; não bloqueia a inscrição nem a página."""
+    try:
+        with Session() as db:
+            player = db.scalar(select(Player).where(Player.verified == 0)
+                               .order_by(Player.created_at, Player.id))
+            if player is None:
+                return
+            player_id, nick = player.id, player.nick
+        try:
+            profile = get_public_user(nick)
+        except HTTPException as error:
+            # Nick informado quando a API estava offline, mas depois inexistente.
+            if error.status_code == 400:
+                with Session.begin() as db:
+                    player = db.get(Player, player_id)
+                    if player and player.verified == 0:
+                        player.verified = -1
+            return
+        if profile is None:
+            return
+        with Session.begin() as db:
+            player = db.get(Player, player_id)
+            if player and player.verified == 0:
+                apply_lichess_ratings(player, profile, db.get(Tournament, 1))
+    except Exception:
+        logging.exception('Falha ao tentar atualizar rating pendente.')
+
+
+def schedule_pending_rating_sync(background_tasks: BackgroundTasks):
+    global ratings_retry_after
+    with RATINGS_RETRY_LOCK:
+        now = time.monotonic()
+        if now < ratings_retry_after:
+            return
+        ratings_retry_after = now + RATINGS_RETRY_INTERVAL
+    background_tasks.add_task(retry_one_pending_rating)
+
+
 def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: random.Random, speed: str = 'rapid'):
     """Sorteia folgas e pares com preferência estatística por rating próximo."""
     n = len(players)
@@ -746,9 +798,11 @@ def archived_tournament(archive_id: int):
 
 
 @app.get('/api/state')
-def state():
+def state(background_tasks: BackgroundTasks):
     with Session() as db:
-        return status_data(db)
+        result = status_data(db)
+    schedule_pending_rating_sync(background_tasks)
+    return result
 
 
 @app.get('/api/preview')
@@ -783,11 +837,13 @@ def register(data: Signup, request: Request):
             fail(409, "As inscrições estão encerradas.")
         if db.scalar(select(Player.id).where(Player.nick_key == data.nick.casefold())):
             fail(409, "Esse nick já está inscrito.")
+    # O Lichess é complementar: problemas de rede, timeout e 429 NÃO
+    # podem impedir a inscrição. Um 404 confirmado continua impedindo
+    # o cadastro de uma conta inexistente.
     public = get_public_user(data.nick)
-    if public is None:
-        fail(503, 'O Lichess está temporariamente indisponível. Tente novamente mais tarde.')
-    account = public.get('username') or public.get('id') or data.nick
-    ratings = ratings_from_lichess(public)
+    pending = public is None
+    account = (public.get('username') or public.get('id') or data.nick) if public else data.nick
+    ratings = ratings_from_lichess(public) if public else {}
     with Session() as db:
         t = db.get(Tournament, 1)
         speed = speed_for_clock(t.minutes, t.increment)
@@ -799,7 +855,9 @@ def register(data: Signup, request: Request):
     p = Player(name=data.name, nick=account, nick_key=account.casefold(),
                rating_reported=1500, rating_official=(ratings.get('rapid') or {}).get('rating'),
                rating=current.get('rating') or 1500, provisional=int(bool(current.get('prov'))),
-               verified=1, ratings_json=json.dumps(ratings, ensure_ascii=False),
+               verified=0 if pending else 1,
+               ratings_json=None if pending else json.dumps(ratings, ensure_ascii=False),
+               ratings_synced_at=None if pending else datetime.now(timezone.utc),
                regulation_accepted_at=datetime.now(timezone.utc),
                regulation_fingerprint=regulations_digest)
     try:
@@ -810,7 +868,13 @@ def register(data: Signup, request: Request):
     except IntegrityError:
         fail(409, "Esse nick já está inscrito.")
     queue.append(now)
-    return {"message": "Inscrição registrada!", "player": {"id": p.id, "name": p.name, "nick": p.nick}}
+    return {
+        "message": ("Inscrição confirmada! O rating será consultado novamente "
+                    "assim que o Lichess estiver disponível." if pending
+                    else "Inscrição confirmada! Dados do Lichess consultados."),
+        "rating_pending": pending,
+        "player": {"id": p.id, "name": p.name, "nick": p.nick}
+    }
 
 
 @app.get('/api/admin/session')
