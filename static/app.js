@@ -31,8 +31,8 @@ async function refresh(quiet=false){
  }catch(e){if(!quiet)toast(e.message)}
 }
 function tab(name,scrollTarget=null){
- $Icontent-tabI.forEach(el=>el.classList.toggle('hidden',el.id!==`tab-${name}`));
- $Inav-btnI.forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
+ $$('.content-tab').forEach(el=>el.classList.toggle('hidden',el.id!==`tab-${name}`));
+ $$('.nav-btn').forEach(el=>el.classList.toggle('active',el.dataset.tab===name));
  if(name==='admin'){
   if(archiveId){archiveId=0;refresh();}
   checkAdmin();
