@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import math
 import os
 import random
@@ -18,7 +19,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 import requests
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, select, func, inspect, text
@@ -40,6 +41,11 @@ HTTP = requests.Session()
 HTTP.headers.update({"User-Agent": "XadrezEntreAmigos/1.0 (Lichess API integration; public game metadata)"})
 LICHESS_LOCK = threading.Lock()
 lichess_cooldown_until = 0.0
+RATINGS_RETRY_LOCK = threading.Lock()
+ratings_retry_after = 0.0
+# Render gratuito pode suspender o serviço por inatividade. Uma nova visita
+# agenda uma consulta pendente, sem bloquear a resposta do usuário.
+RATINGS_RETRY_INTERVAL = 120
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{2,30}$")
 GAME_URL_RE = re.compile(r"^https://lichess\.org/[a-zA-Z0-9]{8}(?:/[a-zA-Z0-9]+)?(?:\?.*)?$", re.I)
 recent_signups = defaultdict(deque)
@@ -103,6 +109,8 @@ class Player(Base):
     provisional: Mapped[int] = mapped_column(Integer, default=0)
     verified: Mapped[int] = mapped_column(Integer, default=0)
     ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    manual_ratings_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ratings_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     disqualified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     disqualified_round: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     disqualification_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
@@ -177,6 +185,10 @@ with engine.begin() as conn:
     player_columns = {col['name'] for col in inspect(conn).get_columns('players')}
     if 'ratings_json' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN ratings_json TEXT'))
+    if 'manual_ratings_json' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN manual_ratings_json TEXT'))
+    if 'ratings_synced_at' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN ratings_synced_at TIMESTAMP WITH TIME ZONE'))
     if 'disqualified_at' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN disqualified_at TIMESTAMP WITH TIME ZONE'))
     if 'disqualified_round' not in player_columns:
@@ -240,17 +252,37 @@ def speed_for_clock(minutes, increment):
     return 'classical'
 
 
-def stored_ratings(p):
+def lichess_ratings(p):
+    """Ratings retornados pelo Lichess, sem modificações manuais."""
     try:
-        parsed = json.loads(p.ratings_json or '{}')
-        if isinstance(parsed, dict):
-            return parsed
+        raw = json.loads(p.ratings_json or '{}')
+        if isinstance(raw, dict):
+            return raw
     except (ValueError, TypeError):
         pass
-    # Legado: antes da atualização, só existia rating Rapid oficial.
     if p.ratings_json is None and p.rating_official is not None:
         return {'rapid': {'rating': p.rating_official, 'prov': bool(p.provisional)}}
     return {}
+
+
+def manual_ratings(p):
+    try:
+        raw = json.loads(p.manual_ratings_json or '{}')
+        if isinstance(raw, dict):
+            return {key: val for key, val in raw.items()
+                    if key in SPEEDS and isinstance(val, int) and
+                    not isinstance(val, bool) and 400 <= val <= 3500}
+    except (ValueError, TypeError):
+        pass
+    return {}
+
+
+def stored_ratings(p):
+    """No pareamento, um rating manual tem prioridade até ser retirado no painel."""
+    combined = lichess_ratings(p).copy()
+    for speed, value in manual_ratings(p).items():
+        combined[speed] = {'rating': value, 'prov': False, 'source': 'manual'}
+    return combined
 
 
 def effective_rating(p, speed):
