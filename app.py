@@ -49,6 +49,47 @@ recent_logins = defaultdict(deque)
 class Base(DeclarativeBase):
     pass
 
+DEFAULT_REGULATION = [
+  {
+    "title": "1. FORMATO DO TORNEIO",
+    "body": "- O torneio será disputado em chaves eliminatórias.\n- O vencedor de cada confronto avança para a próxima fase.\n- O perdedor será eliminado.\n- Os confrontos serão definidos por sorteio, buscando adversários de ratings próximos."
+  },
+  {
+    "title": "2. PRAZO E AGENDAMENTO",
+    "body": "- Cada rodada terá duração máxima de {round_days} dias corridos.\n- Os adversários deverão entrar em contato e tentar agendar a partida até o {contact_day}º dia da rodada.\n- Os jogadores poderão escolher livremente o dia e o horário, desde que respeitem o prazo da rodada.\n- A organização divulgará a data e o horário exatos de início e encerramento de cada rodada.\n- As partidas deverão ser concluídas até o horário de encerramento divulgado."
+  },
+  {
+    "title": "3. RITMO DE JOGO",
+    "body": "- Cada confronto será disputado em uma partida de {minutes} minutos com {increment} segundo(s) de incremento ({time_control}).\n- As cores serão definidas por sorteio.\n- Em caso de empate, será disputada uma partida de desempate no ritmo {tiebreak_time_control}, alternando as cores a cada nova partida até haver um vencedor."
+  },
+  {
+    "title": "4. ELIMINAÇÃO POR W.O.",
+    "body": "- O jogador que não comparecer ao horário combinado, após {wo_minutes} minutos de tolerância, perderá por W.O.\n- O jogador que não responder às tentativas comprovadas de agendamento poderá perder por W.O.\n- Se ambos não realizarem a partida dentro do prazo, sem responsabilidade individual comprovada, os dois serão eliminados.\n- Não haverá prorrogação do prazo, salvo decisão excepcional da organização.\n- Em caso de desacordo, a organização avaliará as mensagens de agendamento para definir a responsabilidade pelo não comparecimento."
+  },
+  {
+    "title": "5. COMUNICAÇÃO DOS RESULTADOS",
+    "body": "- O vencedor deverá enviar o link da partida no Lichess ao grupo do torneio.\n- A organização atualizará as chaves após o encerramento de cada rodada."
+  },
+  {
+    "title": "6. REGRAS GERAIS",
+    "body": "- É proibido utilizar motores de análise, inteligência artificial ou qualquer auxílio externo durante as partidas.\n- Os participantes deverão respeitar os adversários e manter o espírito esportivo.\n- Os casos não previstos serão resolvidos pela organização."
+  },
+  {
+    "title": "7. CAMPEÃO",
+    "body": "- Será declarado campeão o jogador que vencer seus confrontos até a final."
+  }
+]
+
+
+def regulation_sections(t):
+    try:
+        data = json.loads(t.regulation_json) if t.regulation_json else None
+        if isinstance(data, list) and len(data) == 7:
+            return data
+    except (TypeError, ValueError):
+        pass
+    return DEFAULT_REGULATION
+
 
 class Player(Base):
     __tablename__ = 'players'
@@ -80,6 +121,9 @@ class Tournament(Base):
     round_days: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     contact_day: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
     wo_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default="15")
+    tiebreak_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
+    tiebreak_increment: Mapped[int] = mapped_column(Integer, nullable=False, default=3, server_default="3")
+    regulation_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
 
 class TournamentArchive(Base):
@@ -119,6 +163,9 @@ with engine.begin() as conn:
         'round_days': 'INTEGER NOT NULL DEFAULT 5',
         'contact_day': 'INTEGER NOT NULL DEFAULT 2',
         'wo_minutes': 'INTEGER NOT NULL DEFAULT 15',
+        'tiebreak_minutes': 'INTEGER NOT NULL DEFAULT 5',
+        'tiebreak_increment': 'INTEGER NOT NULL DEFAULT 3',
+        'regulation_json': 'TEXT',
     }
     for name, ddl in columns.items():
         if name not in existing:
@@ -165,6 +212,9 @@ def tournament_settings(t):
         'round_days': t.round_days,
         'contact_day': t.contact_day,
         'wo_minutes': t.wo_minutes,
+        'tiebreak_minutes': t.tiebreak_minutes,
+        'tiebreak_increment': t.tiebreak_increment,
+        'regulation_sections': regulation_sections(t),
     }
 
 
@@ -352,6 +402,8 @@ class TournamentSettingsIn(BaseModel):
     round_days: int = Field(ge=1, le=30)
     contact_day: int = Field(ge=1, le=30)
     wo_minutes: int = Field(ge=0, le=60)
+    tiebreak_minutes: int = Field(default=5, ge=1, le=60)
+    tiebreak_increment: int = Field(default=3, ge=0, le=60)
 
     @field_validator('title')
     @classmethod
@@ -365,6 +417,20 @@ class TournamentSettingsIn(BaseModel):
     @classmethod
     def normalized_text(cls, value):
         return value.strip()
+
+
+class RegulationSectionIn(BaseModel):
+    title: str = Field(min_length=2, max_length=120)
+    body: str = Field(min_length=5, max_length=3500)
+
+    @field_validator('title', 'body')
+    @classmethod
+    def strip_rule(cls, v):
+        return v.strip()
+
+
+class RegulationUpdateIn(BaseModel):
+    sections: list[RegulationSectionIn] = Field(min_length=7, max_length=7)
 
 
 class NewTournamentIn(TournamentSettingsIn):
@@ -551,13 +617,22 @@ def save_tournament_settings(data: TournamentSettingsIn, request: Request):
     with Session.begin() as db:
         t = db.get(Tournament, 1)
         if t.status != 'registration':
-            locked = ('minutes', 'increment', 'round_days', 'contact_day', 'wo_minutes')
+            locked = ('minutes', 'increment', 'round_days', 'contact_day', 'wo_minutes', 'tiebreak_minutes', 'tiebreak_increment')
             old = tournament_settings(t)
             for key in locked:
                 if getattr(data, key) != old[key]:
                     fail(409, 'Após o sorteio, ritmo e prazos ficam bloqueados para preservar a integridade das rodadas.')
         update_settings(t, data)
     return {'message': 'Informações do torneio atualizadas.'}
+
+
+@app.put('/api/admin/regulation')
+def save_regulation(data: RegulationUpdateIn, request: Request):
+    require_admin(request)
+    with Session.begin() as db:
+        t = db.get(Tournament, 1)
+        t.regulation_json = json.dumps([section.model_dump() for section in data.sections], ensure_ascii=False)
+    return {'message': 'Regulamento atualizado e publicado.'}
 
 
 @app.post('/api/admin/tournaments/new', status_code=201)
