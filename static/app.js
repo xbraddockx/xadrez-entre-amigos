@@ -290,10 +290,18 @@ function closePlayerHistory(){
 async function checkAdmin(){
  try{const d=await api('/api/admin/session');admin=d.authenticated;$('#admin-login-box').classList.toggle('hidden',admin);$('#admin-dashboard').classList.toggle('hidden',!admin);if(admin)renderAdmin();if(!d.enabled&&!admin)$('#login-message').textContent='O servidor precisa ter ADMIN_PASSWORD configurada.'}catch(e){toast(e.message)}
 }
+function renderAdminColors(){
+ const area=$('#admin-colors');if(!area)return;
+ const old=(site.matches||[]).filter(m=>m.p2&&(site.status==='finished'||m.round<site.round));
+ if(!old.length){area.innerHTML='';return}
+ area.innerHTML='<section class="admin-results" style="margin-top:20px"><h3>Cores de confrontos anteriores</h3><p class="admin-help" style="padding:0 20px 12px">Confrontos realizados antes da atualização não receberam cores fictícias. Informe quem realmente jogou de brancas para completar o histórico.</p>'+old.map(m=>'<article class="admin-match-card"><div class="admin-match-summary"><div><strong>Rodada '+m.round+' · '+esc(nameFor(m.p1)?.nick)+' × '+esc(nameFor(m.p2)?.nick)+'</strong><small>'+(m.white_id?'Brancas: @'+esc(nameFor(m.white_id)?.nick||'?'):'Cor não registrada')+'</small></div><button class="api-btn" data-edit-color="'+m.id+'">Definir cores</button></div><div id="admin-detail-'+m.id+'"></div></article>').join('')+'</section>';
+}
+
 function renderAdmin(){
  if(!site||!admin)return;
  renderAdminSettings();
  renderRegulationEditor();
+ renderAdminColors();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)} · ${rating(p)} ${p.rating_official!==null?'(oficial)':'(informado)'}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
