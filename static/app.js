@@ -424,6 +424,28 @@ function showDisqualificationForm(id){
  area.querySelector('textarea').focus();
 }
 
+
+function renderAdminArchives(){
+ const root=$('#admin-archives');
+ if(!root)return;
+ const archived=(editions||[]).filter(e=>!e.current&&Number(e.id)>0);
+ const signature=JSON.stringify(archived);
+ if(root.dataset.signature===signature)return;
+ root.dataset.signature=signature;
+ const list=archived.map(e=>{
+  const date=e.archived_at?new Date(e.archived_at).toLocaleDateString('pt-BR'):'Data não informada';
+  return '<article class="archive-delete-item"><div class="archive-delete-info"><strong>'+esc(e.title)+'</strong><small>Arquivo #'+e.id+' · '+esc(date)+'</small></div><button type="button" class="archive-delete-open" data-open-archive-delete="'+e.id+'">Excluir edição</button></article><div class="archive-delete-confirm-slot" id="archive-delete-slot-'+e.id+'"></div>';
+ }).join('');
+ root.innerHTML='<section class="admin-config archive-management"><div class="admin-config-head"><div><h3>Gerenciar edições anteriores</h3><p>Exclua versões de teste ou torneios arquivados que não deseja mais exibir. A edição atual, seus inscritos e os participantes já transferidos não serão afetados.</p></div></div>'+(archived.length?'<div class="archive-delete-list">'+list+'</div>':'<p class="archive-delete-empty">Não existem edições anteriores arquivadas.</p>')+'<p class="archive-delete-disclaimer">A exclusão é permanente e remove o histórico público, os confrontos e os resultados daquela edição. Antes de excluir, considere baixar o backup em JSON acima.</p></section>';
+}
+function openArchiveDeletion(id){
+ const archive=editions.find(x=>Number(x.id)===id&&!x.current);
+ const slot=$('#archive-delete-slot-'+id);
+ if(!archive||!slot)return;
+ slot.innerHTML='<form class="archive-delete-form" data-archive-delete-id="'+id+'"><h4>Excluir definitivamente esta edição?</h4><p>Você está prestes a apagar <strong>'+esc(archive.title)+'</strong> (arquivo #'+id+'). Seus inscritos históricos, chaves e resultados deixarão de estar disponíveis nessa edição. A competição atual permanece intacta.</p><label for="archive-delete-text-'+id+'">Digite <strong>EXCLUIR</strong> para confirmar</label><input id="archive-delete-text-'+id+'" name="confirmation" type="text" autocomplete="off" spellcheck="false" maxlength="7" required placeholder="EXCLUIR"/><div class="archive-delete-actions"><button type="submit" class="archive-delete-confirm-btn">Excluir edição permanentemente</button><button type="button" class="archive-delete-cancel-btn" data-cancel-archive-delete="'+id+'">Cancelar</button></div></form>';
+ slot.querySelector('input').focus();
+}
+
 function renderAdmin(){
  if(!site||!admin)return;
  renderAdminSettings();
@@ -431,6 +453,7 @@ function renderAdmin(){
  renderAdminColors();
  renderAdminDisqualifications();
  renderAdminImport();
+ renderAdminArchives();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
   controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
@@ -575,6 +598,8 @@ $('#logout-button').addEventListener('click',()=>doAction('/api/admin/logout',{m
 $('#admin-dashboard').addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.id==='download-backup'){downloadBackup();return;}
+ if(b.dataset.openArchiveDelete){openArchiveDeletion(Number(b.dataset.openArchiveDelete));return;}
+ if(b.dataset.cancelArchiveDelete){const slot=$('#archive-delete-slot-'+b.dataset.cancelArchiveDelete);if(slot)slot.replaceChildren();return;}
  if(b.id==='toggle-new'){newEditionOpen=!newEditionOpen;renderAdmin();return;}
  if(b.dataset.reloadImport){await loadImportablePlayers();renderAdminImport();return;}
  if(b.dataset.importAll){importSelected=new Set(importListForSource().filter(p=>!p.already_registered&&!p.disqualified_in_source&&!site.players.some(q=>q.nick.toLowerCase()===p.nick.toLowerCase())).map(p=>p.nick.toLowerCase()));renderAdminImport();return;}
@@ -596,6 +621,27 @@ $('#admin-dashboard').addEventListener('change',e=>{
  if(checkbox){const key=checkbox.dataset.importNick.toLowerCase();if(checkbox.checked)importSelected.add(key);else importSelected.delete(key);renderAdminImport()}
 });
 $('#admin-dashboard').addEventListener('submit',async e=>{
+ const deleteArchive=e.target.closest('form[data-archive-delete-id]');
+ if(deleteArchive){
+  e.preventDefault();
+  const id=Number(deleteArchive.dataset.archiveDeleteId);
+  const title=editions.find(item=>Number(item.id)===id&&!item.current)?.title;
+  const typed=String(new FormData(deleteArchive).get('confirmation')||'').trim();
+  if(!title||typed!=='EXCLUIR'){toast('Digite EXCLUIR em letras maiúsculas para confirmar a exclusão.');return;}
+  if(!confirm('Excluir DEFINITIVAMENTE a edição '+title+' (#'+id+')? Essa ação não poderá ser desfeita.'))return;
+  const button=deleteArchive.querySelector('[type="submit"]');
+  button.disabled=true;
+  try{
+   const result=await api('/api/admin/tournaments/archives/'+id,{method:'DELETE',body:JSON.stringify({confirmation:'EXCLUIR'})});
+   toast(result.message||'Edição excluída.');
+   if(archiveId===id)archiveId=0;
+   importSelected.clear();
+   importSourceId=0;
+   await Promise.all([loadImportablePlayers(),refresh()]);
+  }catch(error){toast(error.message)}
+  finally{if(button.isConnected)button.disabled=false}
+  return;
+ }
  const disqualificationForm=e.target.closest('form[data-disqualification-id]');
  if(disqualificationForm){
   e.preventDefault();
