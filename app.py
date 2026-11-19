@@ -1074,7 +1074,11 @@ def admin_rating_data(p):
         }
     return {
         'id': p.id, 'name': p.name, 'nick': p.nick, 'verified': p.verified,
-        'synced_at': iso(p.ratings_synced_at), 'ratings': data, 'manual': manual
+        'synced_at': iso(p.ratings_synced_at),
+        'attempted_at': iso(p.ratings_attempted_at),
+        'error': p.ratings_error,
+        'origin': p.ratings_origin,
+        'ratings': data, 'manual': manual
     }
 
 
@@ -1150,6 +1154,7 @@ def list_admin_ratings(request: Request):
         players = db.scalars(select(Player).order_by(Player.name, Player.id)).all()
         return {
             'category': speed_for_clock(tournament.minutes, tournament.increment),
+            'lichess': lichess_status(),
             'players': [admin_rating_data(p) for p in players]
         }
 
@@ -1177,6 +1182,37 @@ def set_manual_ratings(player_id: int, data: ManualRatingsIn, request: Request):
     return {'message': 'Ratings manuais salvos. Valores vazios voltam a usar o Lichess, quando disponível.'}
 
 
+
+class AdminBrowserLichessIn(BaseModel):
+    nick: str = Field(min_length=2, max_length=30)
+    perfs: dict[str, dict] = Field(default_factory=dict)
+
+
+@app.post('/api/admin/players/{player_id}/browser-ratings')
+def accept_admin_browser_ratings(player_id: int, data: AdminBrowserLichessIn, request: Request):
+    """Fallback iniciado pelo navegador do organizador, não verificado pelo servidor.
+    Dados recebidos por um administrador autenticado são etiquetados pela origem
+    e não podem substituir ajustes manuais existentes."""
+    require_admin(request)
+    if not USERNAME_RE.fullmatch(data.nick):
+        fail(400, 'Nick enviado é inválido.')
+    with Session.begin() as db:
+        player = db.get(Player, player_id)
+        if not player:
+            fail(404, 'Inscrito não encontrado.')
+        if player.nick_key != data.nick.casefold():
+            fail(409, 'O nick mudou durante a consulta. Tente novamente.')
+        validated = ratings_from_lichess({'perfs': data.perfs})
+        # Guarda somente as categorias padrão e os números aceitos pelo modelo.
+        clean_profile = {'perfs': {key: {
+            'rating': val['rating'], 'prov': val.get('prov', False),
+            'games': val.get('games')
+        } for key, val in validated.items()}}
+        apply_lichess_ratings(player, clean_profile, db.get(Tournament, 1),
+                              origin='admin_browser')
+    return {'message': 'Ratings obtidos pelo seu navegador e salvos. Origem identificada no painel.'}
+
+
 @app.post('/api/admin/players/{player_id}/refresh-ratings')
 def refresh_player_lichess_rating(player_id: int, request: Request):
     """O administrador pode tentar consultar novamente sem remover a inscrição."""
@@ -1198,14 +1234,27 @@ def refresh_player_lichess_rating(player_id: int, request: Request):
         return {'message': 'O Lichess informou que esse nick não existe. Confira o cadastro.',
                 'not_found': True}
     if profile is None:
-        return {'message': 'A consulta ainda não foi possível. A inscrição e os ratings manuais foram preservados.',
-                'pending': True}
+        status = lichess_status()
+        reason = ('O Lichess limitou as consultas deste servidor (HTTP 429).' if status['rate_limited']
+                  else 'O Lichess não respondeu ao servidor.')
+        with Session.begin() as db:
+            player = db.get(Player, player_id)
+            if player and player.nick_key == nick.casefold():
+                player.ratings_attempted_at = datetime.now(timezone.utc)
+                player.ratings_error = 'Acesso limitado (429)' if status['rate_limited'] else 'Falha temporária'
+        return {
+            'message': reason + ' Tentaremos pelo seu navegador. A inscrição continuará válida.',
+            'pending': True,
+            'rate_limited': status['rate_limited'],
+            'retry_seconds': status['cooldown_seconds'],
+        }
     with Session.begin() as db:
         player = db.get(Player, player_id)
         if player is None:
             fail(404, 'Jogador não encontrado nesta edição.')
         if player.nick_key != nick.casefold():
             fail(409, 'O nick foi alterado durante a consulta. Tente novamente com o novo nick.')
+        player.ratings_attempted_at = datetime.now(timezone.utc)
         apply_lichess_ratings(player, profile, db.get(Tournament, 1))
     return {'message': 'Ratings do Lichess atualizados. Ajustes manuais foram mantidos.',
             'pending': False}
