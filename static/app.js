@@ -54,6 +54,33 @@ function tab(name,scrollTarget=null){
  }
 }
 
+
+function consentWarning(message=''){
+ const warning=$('#signup-agreement-warning');
+ const checkbox=$('#signup-agree');
+ warning.textContent=message;
+ checkbox.setAttribute('aria-invalid',message?'true':'false');
+ $('#signup-consent').classList.toggle('consent-invalid',Boolean(message));
+}
+function openRegulationDialog(){
+ if(!site?.settings?.regulation_sections?.length){
+  toast('O regulamento ainda está carregando. Tente novamente.');
+  return;
+ }
+ const dialog=$('#regulation-dialog');
+ $('#regulation-dialog-title').textContent='Regulamento · '+(site.settings.title||'Torneio de Xadrez');
+ const content=$('#regulation-dialog-body');
+ content.replaceChildren(...[...$('#regulation-body').children].map(node=>node.cloneNode(true)));
+ dialog.classList.remove('hidden');
+ document.body.classList.add('modal-open');
+ $('#regulation-dialog-close').focus();
+}
+function closeRegulationDialog(){
+ $('#regulation-dialog').classList.add('hidden');
+ document.body.classList.remove('modal-open');
+ $('#signup-regulation-link').focus();
+}
+
 function ruleTokens(){
  const s=site.settings||{};
  return {title:s.title||'Torneio',minutes:s.minutes??10,increment:s.increment??0,time_control:timeLabel(),
@@ -504,12 +531,38 @@ $('#player-dialog').addEventListener('click',e=>{if(e.target.closest('[data-clos
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#player-dialog').classList.contains('hidden'))closePlayerHistory()});
 
 $('#tournament-selector').addEventListener('change', async e=>{archiveId=Number(e.target.value);preview={pairs:[],byes:[]};await refresh();tab('chaves');});
+$('#signup-agree').addEventListener('change',e=>{if(e.target.checked)consentWarning();});
+$('#signup-regulation-link').addEventListener('click',e=>{e.preventDefault();openRegulationDialog();});
+$('#regulation-dialog').addEventListener('click',e=>{if(e.target.closest('[data-close-regulation]'))closeRegulationDialog();});
+$('#regulation-dialog').addEventListener('keydown',e=>{
+ if(e.key==='Escape'){e.preventDefault();closeRegulationDialog();return;}
+ if(e.key!=='Tab')return;
+ const buttons=[...$('#regulation-dialog').querySelectorAll('button:not([disabled]),a[href]')];
+ const first=buttons[0],last=buttons[buttons.length-1];
+ if(!first||!last)return;
+ if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}
+ else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}
+});
 $('#signup-form').addEventListener('submit',async e=>{
- e.preventDefault();const form=e.currentTarget,btn=$('#signup-submit'),msg=$('#signup-message');
+ e.preventDefault();
+ const form=e.currentTarget,btn=$('#signup-submit'),msg=$('#signup-message');
+ const agree=$('#signup-agree');
+ if(!agree.checked){
+  consentWarning('Para confirmar a inscrição, marque a caixa “Estou de acordo com o Regulamento”.');
+  agree.focus();
+  return;
+ }
+ consentWarning();
+ if(!form.checkValidity()){form.reportValidity();return;}
+ const data=Object.fromEntries(new FormData(form).entries());
+ data.agreed_to_rules=agree.checked;
  btn.disabled=true;msg.className='form-message';msg.textContent='Conferindo usuário e rating…';
- try{const d=await api('/api/register',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form).entries()))});
-  msg.className='form-message success';msg.textContent='Inscrição confirmada! Os ratings disponíveis foram consultados no Lichess para o pareamento.';
- form.reset();await refresh();
+ try{
+  await api('/api/register',{method:'POST',body:JSON.stringify(data)});
+  msg.className='form-message success';msg.textContent='Inscrição confirmada! Seu aceite do regulamento foi registrado.';
+  form.reset();
+  consentWarning();
+  await refresh();
  }catch(error){msg.className='form-message error';msg.textContent=error.message}
  finally{btn.disabled=site?.status!=='registration'}
 });
