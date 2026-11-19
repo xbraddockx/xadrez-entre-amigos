@@ -38,6 +38,7 @@ function tab(name){
   checkAdmin();
  }
  if(name==='chaves') renderBracket();
+ if(name==='classificacao') renderRanking();
  window.scrollTo({top:0,behavior:'smooth'});
 }
 
@@ -114,6 +115,7 @@ function render(){
  $('#player-list').innerHTML=sorted.length?sorted.map(p=>`<div class="player-row"><div class="player-info"><div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div><div><strong>${esc(p.name)}</strong><a href="${profile(p)}" target="_blank" rel="noopener noreferrer">@${esc(p.nick)} ↗</a></div></div><div class="rating">${rating(p)}<small>${p.rating_official!==null?'Rapid Lichess':p.verified?'Rating informado':'Não verificado'}</small></div></div>`).join(''):
  `<div class="empty"><span class="empty-mark">♙</span><strong>O tabuleiro está pronto.</strong><p>Os jogadores aparecerão aqui assim que se inscreverem.</p></div>`;
  renderBracket();
+ renderRanking();
  if(admin&&!archiveId)renderAdmin();
 }
 function playerLine(p,winner=false){return `<span class="match-player ${winner?'win':''}" title="${esc(p?.name||'')}">${p?`<a href="${profile(p)}" target="_blank" rel="noopener noreferrer">${esc(p.nick)}</a>`:'A definir'}</span><span class="match-rating">${p?rating(p):''}</span>`}
@@ -190,6 +192,68 @@ function renderBracket(){
  area.innerHTML=html;
  $('#bracket-subtitle').textContent=isPreview?'Prévia atualizada com os inscritos. A chave oficial começa após o encerramento das inscrições.':'Chaveamento e resultados atualizados conforme a organização registra as partidas.';
 }
+
+function colorOf(m,id){return m?.white_id ? (m.white_id===id?'brancas':'pretas') : null}
+function totalsOf(id){
+ const total={white:0,black:0};
+ for(const m of site.matches||[]){
+  if(!m.white_id||!m.p2||!['complete','draw_pending'].includes(m.status)||![m.p1,m.p2].includes(id))continue;
+  const count=(site.games||[]).filter(g=>g.match_id===m.id).length||1;
+  for(let i=0;i<count;i++){
+   const white=(m.white_id===id)===(i%2===0);
+   total[white?'white':'black']++;
+  }
+ }
+ return total;
+}
+function formatPoints(p){return Number.isInteger(p)?String(p):String(p).replace('.',',')}
+function standings(){
+ const ranked=(site.players||[]).map(p=>({...p,wins:0,draws:0,losses:0,matchWins:0,roundReached:0,score:0,played:0,colors:totalsOf(p.id)}));
+ const byId=new Map(ranked.map(p=>[p.id,p]));
+ for(const m of site.matches||[]){
+  const players=[m.p1,m.p2].filter(Boolean).map(id=>byId.get(id)).filter(Boolean);
+  players.forEach(p=>p.roundReached=Math.max(p.roundReached,m.round||0));
+  const winner=byId.get(m.winner);
+  if(winner&&m.status!=='bye')winner.matchWins++;
+  if(['wo','double_wo','bye','pending'].includes(m.status))continue;
+  const games=(site.games||[]).filter(g=>g.match_id===m.id);
+  if(games.length){
+   games.forEach(game=>players.forEach(p=>{
+    const score=scoreForGame(game,m,p.id);
+    if(score==='1'){p.wins++;p.score++;p.played++}
+    else if(score==='1/2'){p.draws++;p.score+=.5;p.played++}
+    else if(score==='0'){p.losses++;p.played++}
+   }));
+  }else{
+   players.forEach(p=>{
+    p.played++;
+    if(m.status==='draw_pending'){p.draws++;p.score+=.5}
+    else if(m.winner===p.id){p.wins++;p.score++}
+    else p.losses++;
+   });
+  }
+ }
+ ranked.sort((a,b)=>Number(b.id===site.champion_id)-Number(a.id===site.champion_id)
+   ||b.roundReached-a.roundReached||b.matchWins-a.matchWins||b.score-a.score
+   ||b.wins-a.wins||b.rating-a.rating||a.name.localeCompare(b.name,'pt-BR'));
+ return ranked;
+}
+function trophyIcon(i){
+ const kind=['gold','silver','bronze'][i]||'';
+ return '<svg aria-hidden="true" class="ranking-trophy '+kind+'" viewBox="0 0 64 64"><path d="M17 9h30v18c0 13-7 21-15 21s-15-8-15-21V9zM17 15H8c0 13 5 20 13 21M47 15h9c0 13-5 20-13 21M28 48h8v7h10v5H18v-5h10z" fill="currentColor"/><path d="M29 20h6v17h-6z" fill="#fff" opacity=".5"/></svg>';
+}
+function renderRanking(){
+ if(!site)return;
+ const root=$('#ranking-area');
+ if(site.status==='registration'){
+  root.innerHTML='<div class="panel ranking-empty"><span class="empty-mark">♛</span><h3>Classificação ainda não iniciada</h3><p>O ranking aparecerá após o sorteio oficial e a publicação dos resultados.</p></div>';return;
+ }
+ const players=standings(),final=site.status==='finished';
+ const podium=players.slice(0,3).map((p,i)=>'<article class="podium-card podium-'+(i+1)+'"><div class="podium-label">'+trophyIcon(i)+'<span>'+ (i+1)+'º LUGAR</span></div><button data-player-id="'+p.id+'" class="podium-name"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button><span class="podium-stats">'+p.matchWins+' confrontos vencidos · '+formatPoints(p.score)+' pontos</span></article>').join('');
+ const rows=players.map((p,i)=>'<tr><td class="rank-pos">'+(i<3?trophyIcon(i):String(i+1)+'º')+'</td><td><button class="rank-player" data-player-id="'+p.id+'"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button></td><td>'+p.roundReached+'ª</td><td>'+p.matchWins+'</td><td>'+p.wins+'</td><td>'+p.draws+'</td><td>'+p.losses+'</td><td class="rank-score">'+formatPoints(p.score)+'</td><td>'+p.colors.white+' / '+p.colors.black+'</td></tr>').join('');
+ root.innerHTML='<div class="ranking-note"><strong>'+(final?'Classificação final':'Classificação provisória')+'</strong><span>'+(final?'Torneio concluído':'As posições podem mudar até o encerramento.')+'</span></div><div class="ranking-podium">'+podium+'</div><section class="panel ranking-panel"><h3>Tabela geral</h3><div class="ranking-table-scroll"><table class="ranking-table"><thead><tr><th>Pos.</th><th>Jogador</th><th>Fase</th><th>Confrontos</th><th>V</th><th>E</th><th>D</th><th>Pontos</th><th>Brancas / Pretas</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="ranking-criteria">Ordenação: campeão, fase alcançada, confrontos vencidos, pontos das partidas, vitórias e rating como último critério. W.O. e folga não contam como partida jogada. Sem uma disputa de terceiro lugar, o bronze é determinado pelos critérios da tabela, não por uma partida específica.</p></section>';
+}
+
 function scoreForGame(game,match,id){
  if(game.outcome==='draw')return '1/2';
  if(game.outcome==='p1')return match.p1===id?'1':'0';
@@ -311,8 +375,9 @@ async function downloadBackup(){
  }catch(e){toast(e.message)}
 }
 // Navegação e controles globais
-$$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
+$$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes','classificacao'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
 $('#refresh-button').addEventListener('click',()=>refresh());
+$('#ranking-area').addEventListener('click',e=>{const b=e.target.closest('button[data-player-id]');if(b)openPlayerHistory(Number(b.dataset.playerId))});
 $('#bracket-area').addEventListener('click',e=>{
  const node=e.target.closest('button[data-player-id]');
  if(node)openPlayerHistory(Number(node.dataset.playerId));
@@ -369,4 +434,4 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
  const payload=Object.fromEntries(new FormData(form).entries());
  await doAction(`/api/admin/matches/${form.dataset.matchId}/result`,{method:'POST',body:JSON.stringify(payload)},'Confirmar e publicar este resultado?');
 });
-refresh().then(()=>{const deep=location.hash.slice(1);if(['inscricoes','chaves','regras'].includes(deep))tab(deep)});setInterval(()=>refresh(true),30000);
+refresh().then(()=>{const deep=location.hash.slice(1);if(['inscricoes','chaves','regras','classificacao'].includes(deep))tab(deep)});setInterval(()=>refresh(true),30000);
