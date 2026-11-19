@@ -1013,32 +1013,31 @@ def disqualify_player(player_id: int, data: DisqualificationIn, request: Request
         match = db.scalar(select(Match).where(
             Match.round_no == t.current_round,
             ((Match.player1_id == player.id) | (Match.player2_id == player.id))))
-        if not match:
-            fail(409, 'Jogador não participa da rodada atual ou já foi eliminado.')
-        if match.status not in ('pending', 'draw_pending') and match.winner_id != player.id:
-            fail(409, 'Este jogador já foi eliminado. Não há classificação pendente a cancelar.')
-
         player.disqualified_at = datetime.now(timezone.utc)
         player.disqualified_round = t.current_round
         player.disqualification_reason = data.reason
-        if match.player2_id is None:
-            # Cancela a vaga de quem avançaria automaticamente por folga.
-            match.status = 'dq'
-            match.winner_id = None
-        else:
-            opponent_id = (match.player2_id if match.player1_id == player.id
-                           else match.player1_id)
-            opponent = db.get(Player, opponent_id)
-            if opponent and not opponent.disqualified_at:
-                match.status = 'wo'
-                match.winner_id = opponent.id
-            else:
-                match.status = 'double_wo'
+        # Se o jogador já foi eliminado, apenas registra a decisão e retira
+        # sua elegibilidade para ranking/pódio. Resultados anteriores não mudam.
+        if match and (match.status in ('pending', 'draw_pending')
+                      or match.winner_id == player.id):
+            if match.player2_id is None:
+                # Cancela a vaga de quem avançaria automaticamente por folga.
+                match.status = 'dq'
                 match.winner_id = None
-        match.result_source = 'disqualification'
-        # Motivo privado fica apenas no cadastro administrativo.
-        match.notes = 'Decisão administrativa de desclassificação.'
-        # Não removemos game_url ou MatchGame: o histórico jogado é preservado.
+            else:
+                opponent_id = (match.player2_id if match.player1_id == player.id
+                               else match.player1_id)
+                opponent = db.get(Player, opponent_id)
+                if opponent and not opponent.disqualified_at:
+                    match.status = 'wo'
+                    match.winner_id = opponent.id
+                else:
+                    match.status = 'double_wo'
+                    match.winner_id = None
+            match.result_source = 'disqualification'
+            # Motivo privado fica apenas no cadastro administrativo.
+            match.notes = 'Decisão administrativa de desclassificação.'
+            # Não removemos game_url ou MatchGame: o histórico jogado é preservado.
     return {'message': 'Desclassificação registrada. O chaveamento e a classificação foram atualizados.'}
 
 
