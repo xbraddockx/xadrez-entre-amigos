@@ -106,6 +106,8 @@ class Player(Base):
     disqualified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     disqualified_round: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     disqualification_reason: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    regulation_accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    regulation_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
@@ -181,6 +183,10 @@ with engine.begin() as conn:
         conn.execute(text('ALTER TABLE players ADD COLUMN disqualified_round INTEGER'))
     if 'disqualification_reason' not in player_columns:
         conn.execute(text('ALTER TABLE players ADD COLUMN disqualification_reason VARCHAR(300)'))
+    if 'regulation_accepted_at' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN regulation_accepted_at TIMESTAMP WITH TIME ZONE'))
+    if 'regulation_fingerprint' not in player_columns:
+        conn.execute(text('ALTER TABLE players ADD COLUMN regulation_fingerprint VARCHAR(64)'))
     existing = {col['name'] for col in inspect(conn).get_columns('tournaments')}
     columns = {
         'title': "VARCHAR(120) NOT NULL DEFAULT 'Copa Mata-Mata | Xadrez Entre Amigos'",
@@ -531,6 +537,7 @@ def add_round(db, t, advancing: list[Player]):
 class Signup(BaseModel):
     name: str = Field(min_length=2, max_length=70)
     nick: str = Field(min_length=2, max_length=30)
+    agreed_to_rules: bool = False
     @field_validator('name')
     @classmethod
     def strip_name(cls, v):
@@ -729,6 +736,8 @@ def preview():
 
 @app.post('/api/register', status_code=201)
 def register(data: Signup, request: Request):
+    if data.agreed_to_rules is not True:
+        fail(400, 'Para confirmar a inscrição, marque a caixa de concordância com o Regulamento.')
     # Limite simples por IP para grupos de pequeno porte; recomendar proxy/limite externo em escala.
     ip = request.client.host if request.client else 'unknown'
     now = time.monotonic()
@@ -750,11 +759,17 @@ def register(data: Signup, request: Request):
     with Session() as db:
         t = db.get(Tournament, 1)
         speed = speed_for_clock(t.minutes, t.increment)
+        # Vincula o aceite aos dados e às regras da edição no momento da inscrição.
+        regulations_digest = hashlib.sha256(json.dumps(
+            tournament_settings(t), ensure_ascii=False, sort_keys=True,
+            separators=(',', ':')).encode('utf-8')).hexdigest()
     current = ratings.get(speed) or {}
     p = Player(name=data.name, nick=account, nick_key=account.casefold(),
                rating_reported=1500, rating_official=(ratings.get('rapid') or {}).get('rating'),
                rating=current.get('rating') or 1500, provisional=int(bool(current.get('prov'))),
-               verified=1, ratings_json=json.dumps(ratings, ensure_ascii=False))
+               verified=1, ratings_json=json.dumps(ratings, ensure_ascii=False),
+               regulation_accepted_at=datetime.now(timezone.utc),
+               regulation_fingerprint=regulations_digest)
     try:
         with Session.begin() as db:
             if db.get(Tournament, 1).status != 'registration':
