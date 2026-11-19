@@ -142,6 +142,7 @@ class Match(Base):
     player1_id: Mapped[int] = mapped_column(Integer, ForeignKey('players.id'), nullable=False)
     player2_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('players.id'), nullable=True)
     winner_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey('players.id'), nullable=True)
+    white_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(String(20), default='pending')
     result_source: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
     game_url: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
@@ -160,6 +161,10 @@ class MatchGame(Base):
 
 
 Base.metadata.create_all(engine)
+with engine.begin() as conn:
+    match_columns = {col['name'] for col in inspect(conn).get_columns('matches')}
+    if 'white_id' not in match_columns:
+        conn.execute(text('ALTER TABLE matches ADD COLUMN white_id INTEGER'))
 # Migração não destrutiva: os torneios existentes permanecem intactos.
 # No primeiro deploy após esta versão, acrescenta apenas as novas colunas.
 with engine.begin() as conn:
@@ -208,7 +213,7 @@ def pdata(p):
 def mdata(m):
     return {"id": m.id, "round": m.round_no, "order": m.sort_order,
             "p1": m.player1_id, "p2": m.player2_id, "winner": m.winner_id,
-            "status": m.status, "game_url": m.game_url, "source": m.result_source,
+            "status": m.status, "white_id": m.white_id, "game_url": m.game_url, "source": m.result_source,
             "notes": m.notes}
 
 
@@ -365,6 +370,41 @@ def bye_counts(db):
     return counts
 
 
+def color_balance(db):
+    """Saldo de cores realmente registradas em confrontos anteriores.
+    Não conta folgas ou W.O. e não inventa cores em jogos antigos.
+    Empates e desempates alternam as cores a cada partida."""
+    balance = defaultdict(int)
+    matches = db.scalars(select(Match).where(
+        Match.white_id.is_not(None), Match.player2_id.is_not(None),
+        Match.status.in_(('complete', 'draw_pending'))).order_by(Match.round_no, Match.id)).all()
+    games_by_match = defaultdict(list)
+    for game in db.scalars(select(MatchGame).order_by(MatchGame.created_at, MatchGame.id)).all():
+        games_by_match[game.match_id].append(game)
+    for match in matches:
+        games = games_by_match.get(match.id, [])
+        count = len(games) or 1
+        black_id = match.player2_id if match.white_id == match.player1_id else match.player1_id
+        # A primeira partida tem a cor sorteada; cada desempate inverte.
+        for i in range(count):
+            white_id, dark_id = (match.white_id, black_id) if i % 2 == 0 else (black_id, match.white_id)
+            balance[white_id] += 1
+            balance[dark_id] -= 1
+    return balance
+
+
+def balanced_colors(p1, p2, balances, rng):
+    """Escolhe a orientação que minimiza os desvios combinados de cores.
+    Caso o custo seja igual, realiza sorteio justo sem considerar rating."""
+    options = [(p1.id, p2.id), (p2.id, p1.id)]
+    costs = [abs(balances[white]+1) + abs(balances[black]-1)
+             for white, black in options]
+    best = min(costs)
+    choices = [i for i, cost in enumerate(costs) if cost == best]
+    selected = rng.choice(choices)
+    return options[selected][0]
+
+
 def add_round(db, t, advancing: list[Player]):
     if len(advancing) == 1:
         t.status = "finished"
@@ -381,11 +421,18 @@ def add_round(db, t, advancing: list[Player]):
     t.current_round += 1
     t.round_started = datetime.now(timezone.utc)
     t.deadline = t.round_started + timedelta(days=t.round_days)
-    pairs, bye = choose_pairs(advancing, bye_counts(db), random.SystemRandom())
+    rng = random.SystemRandom()
+    pairs, bye = choose_pairs(advancing, bye_counts(db), rng)
+    balances = color_balance(db)
     idx = 1
     for p1, p2 in pairs:
+        white = balanced_colors(p1, p2, balances, rng)
         db.add(Match(round_no=t.current_round, sort_order=idx,
-                     player1_id=p1.id, player2_id=p2.id, status="pending"))
+                     player1_id=p1.id, player2_id=p2.id, white_id=white, status="pending"))
+        # Equilibra cada escolha feita dentro da própria rodada.
+        black = p2.id if white == p1.id else p1.id
+        balances[white] += 1
+        balances[black] -= 1
         idx += 1
     for p in bye:
         db.add(Match(round_no=t.current_round, sort_order=idx,
@@ -739,6 +786,24 @@ def editable_match(db, match_id):
     if m.player2_id is None:
         fail(409, 'Classificação automática não pode ser alterada.')
     return m
+
+
+class MatchColorIn(BaseModel):
+    white_id: int
+
+
+@app.put('/api/admin/matches/{match_id}/color')
+def update_match_color(match_id: int, data: MatchColorIn, request: Request):
+    """Permite preencher as cores de confrontos antigos sem inventar resultados."""
+    require_admin(request)
+    with Session.begin() as db:
+        match = db.get(Match, match_id)
+        if not match or match.player2_id is None:
+            fail(404, 'Confronto não encontrado ou houve folga.')
+        if data.white_id not in (match.player1_id, match.player2_id):
+            fail(400, 'O jogador de brancas precisa pertencer ao confronto.')
+        match.white_id = data.white_id
+    return {'message': 'Cores do confronto atualizadas.'}
 
 
 @app.post('/api/admin/matches/{match_id}/result')
