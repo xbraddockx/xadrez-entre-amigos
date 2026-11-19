@@ -21,7 +21,7 @@ import requests
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import DateTime, ForeignKey, Integer, String, create_engine, select, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, create_engine, select, func, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
@@ -72,6 +72,22 @@ class Tournament(Base):
     round_started: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     champion_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False, default="Copa Mata-Mata | Xadrez Entre Amigos", server_default="Copa Mata-Mata | Xadrez Entre Amigos")
+    description: Mapped[str] = mapped_column(String(500), nullable=False, default="Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título!", server_default="Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título!")
+    prize: Mapped[str] = mapped_column(String(160), nullable=False, default="", server_default="")
+    minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=10, server_default="10")
+    increment: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    round_days: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
+    contact_day: Mapped[int] = mapped_column(Integer, nullable=False, default=2, server_default="2")
+    wo_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=15, server_default="15")
+
+
+class TournamentArchive(Base):
+    __tablename__ = 'tournament_archives'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), nullable=False)
+    snapshot: Mapped[str] = mapped_column(Text, nullable=False)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
 
 class Match(Base):
@@ -90,6 +106,23 @@ class Match(Base):
 
 
 Base.metadata.create_all(engine)
+# Migração não destrutiva: os torneios existentes permanecem intactos.
+# No primeiro deploy após esta versão, acrescenta apenas as novas colunas.
+with engine.begin() as conn:
+    existing = {col['name'] for col in inspect(conn).get_columns('tournaments')}
+    columns = {
+        'title': "VARCHAR(120) NOT NULL DEFAULT 'Copa Mata-Mata | Xadrez Entre Amigos'",
+        'description': "VARCHAR(500) NOT NULL DEFAULT 'Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título!'",
+        'prize': "VARCHAR(160) NOT NULL DEFAULT ''",
+        'minutes': 'INTEGER NOT NULL DEFAULT 10',
+        'increment': 'INTEGER NOT NULL DEFAULT 0',
+        'round_days': 'INTEGER NOT NULL DEFAULT 5',
+        'contact_day': 'INTEGER NOT NULL DEFAULT 2',
+        'wo_minutes': 'INTEGER NOT NULL DEFAULT 15',
+    }
+    for name, ddl in columns.items():
+        if name not in existing:
+            conn.execute(text(f'ALTER TABLE tournaments ADD COLUMN {name} {ddl}'))
 with Session.begin() as db:
     if db.get(Tournament, 1) is None:
         db.add(Tournament(id=1, status="registration", current_round=0))
@@ -122,6 +155,19 @@ def mdata(m):
             "notes": m.notes}
 
 
+def tournament_settings(t):
+    return {
+        'title': t.title,
+        'description': t.description,
+        'prize': t.prize,
+        'minutes': t.minutes,
+        'increment': t.increment,
+        'round_days': t.round_days,
+        'contact_day': t.contact_day,
+        'wo_minutes': t.wo_minutes,
+    }
+
+
 def status_data(db):
     t = db.get(Tournament, 1)
     players = db.scalars(select(Player).order_by(Player.created_at, Player.id)).all()
@@ -131,6 +177,8 @@ def status_data(db):
         "deadline": iso(t.deadline), "champion_id": t.champion_id,
         "players": [pdata(p) for p in players], "matches": [mdata(m) for m in matches],
         "admin_enabled": bool(ADMIN_PASSWORD),
+        "settings": tournament_settings(t),
+        "viewing_archive": False,
     }
 
 
@@ -245,7 +293,7 @@ def add_round(db, t, advancing: list[Player]):
         return
     t.current_round += 1
     t.round_started = datetime.now(timezone.utc)
-    t.deadline = t.round_started + timedelta(days=5)
+    t.deadline = t.round_started + timedelta(days=t.round_days)
     pairs, bye = choose_pairs(advancing, bye_counts(db), random.SystemRandom())
     idx = 1
     for p1, p2 in pairs:
@@ -295,6 +343,44 @@ class UseGame(BaseModel):
     game_id: str
 
 
+class TournamentSettingsIn(BaseModel):
+    title: str = Field(min_length=3, max_length=120)
+    description: str = Field(min_length=0, max_length=500)
+    prize: str = Field(default="", max_length=160)
+    minutes: int = Field(ge=1, le=60)
+    increment: int = Field(ge=0, le=60)
+    round_days: int = Field(ge=1, le=30)
+    contact_day: int = Field(ge=1, le=30)
+    wo_minutes: int = Field(ge=0, le=60)
+
+    @field_validator('title')
+    @classmethod
+    def normal_title(cls, value):
+        normalized = ' '.join(value.split())
+        if len(normalized) < 3:
+            raise ValueError('Informe um nome de torneio com pelo menos três caracteres.')
+        return normalized
+
+    @field_validator('description', 'prize')
+    @classmethod
+    def normalized_text(cls, value):
+        return value.strip()
+
+
+class NewTournamentIn(TournamentSettingsIn):
+    pass
+
+
+def validate_settings(value: TournamentSettingsIn):
+    if value.contact_day > value.round_days:
+        fail(400, 'O dia para contato inicial não pode ultrapassar o prazo da rodada.')
+
+
+def update_settings(t, data: TournamentSettingsIn):
+    for key, value in data.model_dump().items():
+        setattr(t, key, value)
+
+
 @app.get('/')
 def homepage():
     return FileResponse(BASE / 'static' / 'index.html')
@@ -305,6 +391,28 @@ def static_file(filename: str):
     if filename not in ('app.css', 'app.js', 'favicon.svg'):
         fail(404, "Arquivo não encontrado")
     return FileResponse(BASE / 'static' / filename)
+
+
+@app.get('/api/tournaments')
+def tournament_history():
+    with Session() as db:
+        t = db.get(Tournament, 1)
+        archives = db.scalars(select(TournamentArchive).order_by(TournamentArchive.id.desc())).all()
+        return {'tournaments': [
+            {'id': 0, 'title': t.title, 'status': t.status, 'current': True},
+            *[{'id': a.id, 'title': a.title, 'status': 'finished', 'current': False,
+               'archived_at': iso(a.archived_at)} for a in archives]
+        ]}
+
+
+@app.get('/api/tournaments/{archive_id}')
+def archived_tournament(archive_id: int):
+    with Session() as db:
+        a = db.get(TournamentArchive, archive_id)
+        if not a:
+            fail(404, 'Edição anterior não encontrada.')
+        return {**json.loads(a.snapshot), 'viewing_archive': True,
+                'archive_id': a.id, 'archived_at': iso(a.archived_at)}
 
 
 @app.get('/api/state')
@@ -420,6 +528,64 @@ def remove_player(player_id: int, request: Request):
     return {"message": "Inscrição removida."}
 
 
+@app.get('/api/admin/export')
+def export_tournament_history(request: Request):
+    require_admin(request)
+    with Session() as db:
+        archived = db.scalars(select(TournamentArchive).order_by(TournamentArchive.id)).all()
+        return {
+            'format': 'xadrez-entre-amigos-backup-v1',
+            'exported_at': iso(datetime.now(timezone.utc)),
+            'current': status_data(db),
+            'archives': [
+                {'id': a.id, 'title': a.title, 'archived_at': iso(a.archived_at),
+                 'data': json.loads(a.snapshot)} for a in archived
+            ],
+        }
+
+
+@app.put('/api/admin/settings')
+def save_tournament_settings(data: TournamentSettingsIn, request: Request):
+    require_admin(request)
+    validate_settings(data)
+    with Session.begin() as db:
+        t = db.get(Tournament, 1)
+        if t.status != 'registration':
+            locked = ('minutes', 'increment', 'round_days', 'contact_day', 'wo_minutes')
+            old = tournament_settings(t)
+            for key in locked:
+                if getattr(data, key) != old[key]:
+                    fail(409, 'Após o sorteio, ritmo e prazos ficam bloqueados para preservar a integridade das rodadas.')
+        update_settings(t, data)
+    return {'message': 'Informações do torneio atualizadas.'}
+
+
+@app.post('/api/admin/tournaments/new', status_code=201)
+def create_next_tournament(data: NewTournamentIn, request: Request):
+    require_admin(request)
+    validate_settings(data)
+    with Session.begin() as db:
+        t = db.get(Tournament, 1)
+        if t.status == 'active':
+            fail(409, 'Conclua primeiro todas as rodadas do torneio atual.')
+        previous = status_data(db)
+        if t.status == 'registration' and previous['players']:
+            fail(409, 'Há inscrições abertas. Para preservar os participantes, conclua a edição antes de criar outra.')
+        if previous['players'] or previous['matches'] or t.status == 'finished':
+            # Guarda uma cópia completa e imutável da edição anterior antes de limpar os dados ativos.
+            db.add(TournamentArchive(title=t.title,
+                                     snapshot=json.dumps(previous, ensure_ascii=False)))
+        db.query(Match).delete(synchronize_session=False)
+        db.query(Player).delete(synchronize_session=False)
+        t.status = 'registration'
+        t.current_round = 0
+        t.round_started = None
+        t.deadline = None
+        t.champion_id = None
+        update_settings(t, data)
+    return {'message': 'Nova edição criada! A edição anterior foi preservada no histórico.'}
+
+
 @app.post('/api/admin/start')
 def start(request: Request):
     require_admin(request)
@@ -508,7 +674,7 @@ def inspect_games(m: Match, db):
         except ValueError:
             continue
         clock = g.get('clock') or {}
-        if clock.get('initial') != 600 or clock.get('increment') != 0:
+        if clock.get('initial') != t.minutes * 60 or clock.get('increment') != t.increment:
             continue
         if g.get('variant') != 'standard':
             continue
@@ -540,8 +706,9 @@ def lichess_games(match_id: int, request: Request):
     require_admin(request)
     with Session() as db:
         m = editable_match(db, match_id)
+        t = db.get(Tournament, 1)
         return {"games": inspect_games(m, db),
-                "note": "Confira qual partida corresponde ao torneio antes de registrar. Empates exigem desempate 10+0."}
+                "note": f"Confira qual partida corresponde ao torneio antes de registrar. Empates exigem desempate {t.minutes}+{t.increment}."}
 
 
 @app.post('/api/admin/matches/{match_id}/use-game')

@@ -25,10 +25,10 @@
   <main class="shell">
     <section class="hero" aria-label="Apresentação do torneio">
       <div class="hero-content">
-        <div class="eyebrow"><span class="pulse"></span> TORNEIO ONLINE • LICHESS</div>
+        <div class="eyebrow"><span class="pulse"></span><span id="hero-event-name">COPA MATA-MATA | XADREZ ENTRE AMIGOS</span></div>
         <h1>O próximo lance<br/>pode ser <em>seu.</em></h1>
-        <p class="hero-desc">Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título com tempo para combinar cada confronto.</p>
-        <div class="hero-pills"><span>♟ &nbsp; Mata-mata</span><span>◷ &nbsp; 10+0</span><span>▦ &nbsp; 5 dias por rodada</span></div>
+        <p id="hero-description" class="hero-desc">Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título!</p>
+        <div class="hero-pills"><span>♟ &nbsp; Mata-mata</span><span id="hero-time">◷ &nbsp; 10+0</span><span id="hero-deadline">▦ &nbsp; 5 dias por rodada</span><span class="hidden" id="hero-prize"></span></div>
         <div class="hero-actions"><button class="btn primary" data-tab="inscricoes">Quero participar <span>↗</span></button><button class="btn ghost" data-tab="chaves">Ver confrontos <span>→</span></button></div>
       </div>
       <div class="hero-art" aria-hidden="true">
@@ -39,6 +39,10 @@
       </div>
     </section>
 
+    <section class="edition-bar" aria-label="Escolha da edição do torneio">
+      <div><span class="mini-label">EDIÇÃO EM EXIBIÇÃO</span><strong id="edition-name">Copa Mata-Mata | Xadrez Entre Amigos</strong><small id="edition-note">Veja o torneio atual ou consulte o histórico das edições anteriores.</small></div>
+      <select id="tournament-selector" aria-label="Selecionar edição"><option value="0">Torneio atual</option></select>
+    </section>
     <section class="stats" aria-label="Situação do torneio">
       <div class="stat"><span class="stat-label">JOGADORES INSCRITOS</span><strong id="stat-players">0</strong></div>
       <div class="stat"><span class="stat-label">FASE ATUAL</span><strong id="stat-phase" class="stat-small">Inscrições</strong></div>
@@ -80,9 +84,9 @@
       <div class="section-intro"><div><span class="mini-label">03 / LEIA ANTES DE JOGAR</span><h2>Regulamento da copa.</h2><p>Regras objetivas para ninguém perder no relógio fora do tabuleiro.</p></div></div>
       <section class="rules-grid">
         <article class="rule"><span>01</span><h3>Formato</h3><p>Eliminatória simples. O vencedor avança e o perdedor é eliminado. Adversários definidos por sorteio com preferência por rating próximo.</p></article>
-        <article class="rule"><span>02</span><h3>Ritmo de jogo</h3><p>Uma partida de 10 minutos para cada jogador, sem incremento (10+0). Em caso de empate, jogam novamente em 10+0, alternando as cores, até haver um vencedor.</p></article>
-        <article class="rule"><span>03</span><h3>Prazo</h3><p>Cada rodada dura no máximo 5 dias corridos. Os adversários devem iniciar contato até o segundo dia e concluir a partida dentro do prazo divulgado.</p></article>
-        <article class="rule"><span>04</span><h3>W.O.</h3><p>Ausência após 15 minutos do horário combinado pode resultar em W.O. Sem partida e sem responsável identificável, ambos podem ser eliminados.</p></article>
+        <article class="rule"><span>02</span><h3>Ritmo de jogo</h3><p id="rule-time">Uma partida de 10 minutos para cada jogador, sem incremento (10+0). Em caso de empate, jogam novamente no mesmo ritmo, alternando as cores, até haver um vencedor.</p></article>
+        <article class="rule"><span>03</span><h3>Prazo</h3><p id="rule-deadline">Cada rodada dura no máximo 5 dias corridos. Os adversários devem iniciar contato até o segundo dia e concluir a partida dentro do prazo divulgado.</p></article>
+        <article class="rule"><span>04</span><h3>W.O.</h3><p id="rule-wo">Ausência após 15 minutos do horário combinado pode resultar em W.O. Sem partida e sem responsável identificável, ambos podem ser eliminados.</p></article>
         <article class="rule"><span>05</span><h3>Resultados</h3><p>O vencedor envia o link da partida ao grupo. O organizador confirma o resultado, manualmente ou após consulta do histórico público do Lichess.</p></article>
         <article class="rule"><span>06</span><h3>Jogo limpo</h3><p>Proibido utilizar motores de análise ou auxílio externo. Conflitos, recursos e casos omissos são resolvidos pela organização.</p></article>
       </section>
@@ -93,6 +97,9 @@
       <section class="panel admin-login" id="admin-login-box"><div class="admin-lock">♜</div><h3>Acesso restrito</h3><p>Use a senha configurada no servidor.</p><form id="login-form"><label for="admin-password">Senha do administrador</label><input type="password" id="admin-password" name="password" required placeholder="Sua senha" autocomplete="current-password"/><button class="btn primary submit" type="submit">Entrar no painel <span>→</span></button><div class="form-message" id="login-message" role="status"></div></form></section>
       <section class="hidden" id="admin-dashboard">
         <div class="admin-toolbar"><strong>Controle do torneio</strong><button id="logout-button" class="btn slim ghost">Sair do painel</button></div>
+        <div id="admin-settings"></div>
+        <div id="admin-create"></div>
+        <div class="admin-export"><span>Backup de segurança: salve uma cópia dos torneios e resultados no seu computador.</span><button id="download-backup" class="btn slim backup">Baixar histórico em JSON ↓</button></div>
         <div id="admin-controls"></div>
         <div id="admin-match-list"></div>
       </section>

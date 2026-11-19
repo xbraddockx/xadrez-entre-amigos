@@ -113,3 +113,17 @@ pytest -q
 - `tests/` — testes de lógica e endpoints.
 
 **Privacidade:** nome, nick e rating são públicos no torneio. Não compartilhe senhas do Lichess. O administrador pode remover inscrições antes do início; pedidos de remoção após o início exigem ajuste administrativo. Como todo site público, recomenda-se publicar uma política de privacidade e manter os dados protegidos.
+
+## Reutilizar o site para novos torneios (versão multi-edições)
+
+Na **Área do organizador**, após entrar com a senha:
+
+1. Em **Editar dados do torneio atual**, atualize nome da competição, descrição, prêmio opcional, tempo por jogador, incremento, dias por rodada, prazo inicial de contato e tolerância para W.O. Salve para atualizar a página pública imediatamente.
+2. Após o sorteio da primeira rodada, os campos de ritmo e prazos ficam bloqueados, para não alterar as condições das partidas em andamento. Nome, descrição e prêmio continuam editáveis.
+3. Assim que a competição terminar, selecione **Criar nova edição**. O sistema preserva os inscritos, todas as rodadas, resultados e o campeão da edição anterior em um **arquivo de histórico**. A nova edição abre com inscrições vazias.
+4. O público pode usar a caixa **Edição em exibição** para consultar os torneios anteriores. Edições arquivadas não aceitam novas inscrições nem alterações nos resultados.
+5. Use **Baixar histórico em JSON** no painel administrativo para fazer backup das edições. Este arquivo não contém senhas, mas contém nomes e dados públicos dos jogadores. Guarde-o em local seguro.
+
+**Atenção à hospedagem:** o banco PostgreSQL gratuito do Render pode expirar. Para preservar dados por muitos meses e realizar várias edições, configure uma opção de armazenamento persistente, como um banco mantido no Supabase, e faça backups antes da expiração. O backup JSON é uma cópia de segurança, não uma restauração automática.
+
+O sistema gerencia **uma edição ativa por vez**, mantendo quantas edições encerradas forem necessárias como histórico. Para torneios simultâneos, seria necessária uma estrutura diferente.
