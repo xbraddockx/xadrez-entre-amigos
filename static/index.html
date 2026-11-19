@@ -17,6 +17,7 @@
     <nav aria-label="Navegação principal">
       <button class="nav-btn active" data-tab="inscricoes">Inscrições</button>
       <button class="nav-btn" data-tab="chaves">Chaveamento</button>
+      <button class="nav-btn" data-tab="classificacao">Classificação</button>
       <button class="nav-btn" data-tab="regras">Regulamento</button>
       <button class="nav-btn admin-nav" data-tab="admin">Área do organizador <span>↗</span></button>
     </nav>
@@ -78,6 +79,11 @@
       <div class="section-intro"><div><span class="mini-label">02 / CAMINHO ATÉ A FINAL</span><h2>A corrida pelo título.</h2><p id="bracket-subtitle">Durante as inscrições, o chaveamento é apenas uma prévia. O sorteio oficial acontece quando o organizador iniciar o torneio.</p></div><button id="refresh-button" class="btn slim ghost">↻ &nbsp; Atualizar</button></div>
       <div id="bracket-area"></div>
       <p class="subtle-note">Critério: sorteio com preferência por ratings próximos; em caso de quantidade irregular, algumas pessoas avançam por folga (bye). Cada nova rodada é organizada após os resultados da anterior.</p>
+    </div>
+
+    <div class="content-tab hidden" id="tab-classificacao">
+      <div class="section-intro"><div><span class="mini-label">03 / DESTAQUES DA COMPETIÇÃO</span><h2>Classificação do torneio.</h2><p>Resultados, campanhas e jogadores em destaque, atualizados conforme o torneio avança.</p></div></div>
+      <div id="ranking-area"></div>
     </div>
 
     <div class="content-tab hidden" id="tab-regras">
