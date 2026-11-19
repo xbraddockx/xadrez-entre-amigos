@@ -139,7 +139,7 @@ function treeScore(match,id){
 function treePlayer(p,match,ghost=false){
  if(!p)return '<div class="tree-player tree-player-empty"><span class="tree-avatar">♙</span><span class="tree-player-meta"><strong>A definir</strong><small>Próxima fase</small></span></div>';
  const win=match&&match.winner===p.id;
- return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(rating(p))+'</small></span><span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></button>';
+ return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(rating(p))+'</small></span><span class="tree-color-and-score">'+(!ghost&&match?.p2?(match.white_id?'<span class="color-chip '+(match.white_id===p.id?'white-piece':'black-piece')+'">'+(match.white_id===p.id?'♔ Brancas':'♚ Pretas')+'</span>':'<span class="color-chip unknown-piece">Cor não registrada</span>'):'')+'<span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></span></button>';
 }
 function treeMatch(match,index,isPreview=false){
  const p1=nameFor(match?.p1),p2=nameFor(match?.p2);
@@ -268,14 +268,14 @@ function openPlayerHistory(playerId){
   const rival=nameFor(match.p1===p.id?match.p2:match.p1);
   const games=(site.games||[]).filter(g=>g.match_id===match.id);
   if(games.length){
-   games.forEach((g,i)=>history.push({round:match.round,index:i,score:scoreForGame(g,match,p.id),name:i?'Desempate':'Partida',rival,url:g.game_url||''}));
+   games.forEach((g,i)=>history.push({round:match.round,index:i,score:scoreForGame(g,match,p.id),name:i?'Desempate':'Partida',rival,url:g.game_url||'',color:match.white_id?((match.white_id===p.id)===(i%2===0)?'Brancas':'Pretas'):null}));
   }else{
    let value='—',label='Aguardando partida';
    if(match.status==='bye')label='Folga · classificado sem jogar';
    else if(match.status==='wo'||match.status==='double_wo'){label=match.status==='wo'?'W.O.':'W.O. duplo';value=match.winner===p.id?'1':'0'}
    else if(match.status==='draw_pending'){label='Empate';value='1/2'}
    else if(match.status==='complete'){label='Resultado registrado';value=match.winner===p.id?'1':'0'}
-   history.push({round:match.round,index:0,score:value,name:label,rival,url:match.game_url||''});
+   history.push({round:match.round,index:0,score:value,name:label,rival,url:match.game_url||'',color:colorOf(match,p.id)});
   }
  }
  history.sort((a,b)=>b.round-a.round||b.index-a.index);
@@ -305,9 +305,17 @@ function renderAdmin(){
  $('#admin-match-list').innerHTML=site.status==='active'?`<section class="admin-results"><h3>Resultados da rodada ${site.round}</h3><div class="admin-help" style="padding:15px 20px 0">Use “Buscar no Lichess” para encontrar partidas oficiais ${timeLabel()} e desempates ${tiebreakLabel()} entre os adversários. Confirme manualmente qual partida pertence ao torneio.</div>${current.map(m=>{
  const p1=nameFor(m.p1),p2=nameFor(m.p2);
  const desc=m.status==='bye'?'Classificação automática':m.status==='complete'?'Resultado registrado':m.status==='double_wo'?'Ambos eliminados':m.status==='wo'?'Vitória por W.O.':m.status==='draw_pending'?'Empate, falta desempate':'Aguardando resultado';
- return `<article class="admin-match-card"><div class="admin-match-summary"><div><strong>${esc(p1?.nick)} ${p2?'× '+esc(p2.nick):'· FOLGA'}</strong><small>${desc}${m.game_url?' · <a href="'+esc(m.game_url)+'" target="_blank" rel="noopener">Ver partida ↗</a>':''}</small></div>${p2?`<div class="action-buttons"><button data-edit="${m.id}">Lançar resultado</button><button class="api-btn" data-lookup="${m.id}">Buscar no Lichess ↗</button></div>`:''}</div><div id="admin-detail-${m.id}"></div></article>`;
+  const ctext=m.p2?(m.white_id?' · Brancas: @'+esc(nameFor(m.white_id)?.nick||'?'):' · Cores anteriores não registradas'):'';
+ return `<article class="admin-match-card"><div class="admin-match-summary"><div><strong>${esc(p1?.nick)} ${p2?'× '+esc(p2.nick):'· FOLGA'}</strong><small>${desc}${ctext}${m.game_url?' · <a href="'+esc(m.game_url)+'" target="_blank" rel="noopener">Ver partida ↗</a>':''}</small></div>${p2?`<div class="action-buttons"><button data-edit="${m.id}">Lançar resultado</button><button class="api-btn" data-lookup="${m.id}">Buscar no Lichess ↗</button><button class="api-btn" data-edit-color="${m.id}">Definir cores</button></div>`:''}</div><div id="admin-detail-${m.id}"></div></article>`;
  }).join('')}</section>`:'';
 }
+function editColors(id){
+ const m=site.matches.find(x=>x.id===id);if(!m||!m.p2)return;
+ const a=nameFor(m.p1),b=nameFor(m.p2),root=$('#admin-detail-'+id);
+ root.innerHTML='<form data-color-form="'+id+'" class="admin-edit"><label>Quem jogará ou jogou de brancas?</label><select name="white_id"><option value="'+a.id+'">'+esc(a.name)+' (@'+esc(a.nick)+')</option><option value="'+b.id+'">'+esc(b.name)+' (@'+esc(b.nick)+')</option></select><p class="admin-help">Nos confrontos antigos, registre a cor real. O resultado não será alterado.</p><button class="btn primary slim" type="submit">Salvar cores</button></form>';
+ root.querySelector('select').value=m.white_id||m.p1;
+}
+
 function editMatch(id){
  const match=site.matches.find(m=>m.id===id),p1=nameFor(match.p1),p2=nameFor(match.p2);
  const area=$(`#admin-detail-${id}`);
@@ -410,9 +418,12 @@ $('#admin-dashboard').addEventListener('click',e=>{
  if(b.dataset.deletePlayer)doAction(`/api/admin/players/${b.dataset.deletePlayer}`,{method:'DELETE'},'Remover este jogador da inscrição?');
  if(b.dataset.edit)editMatch(Number(b.dataset.edit));
  if(b.dataset.lookup)lookupGames(Number(b.dataset.lookup));
+  if(b.dataset.editColor)editColors(Number(b.dataset.editColor));
  if(b.dataset.confirmGame)doAction(`/api/admin/matches/${b.dataset.match}/use-game`,{method:'POST',body:JSON.stringify({game_id:b.dataset.confirmGame})},'Confirmar que esta partida pertence ao torneio e lançar o resultado?');
 });
 $('#admin-dashboard').addEventListener('submit',async e=>{
+ const colorForm=e.target.closest('form[data-color-form]');
+ if(colorForm){e.preventDefault();await doAction('/api/admin/matches/'+colorForm.dataset.colorForm+'/color',{method:'PUT',body:JSON.stringify({white_id:Number(new FormData(colorForm).get('white_id'))})});return;}
  const config=e.target.closest('#settings-form');
  if(config){e.preventDefault();await doAction('/api/admin/settings',{method:'PUT',body:JSON.stringify(settingsPayload(config))});return;}
  const regulation=e.target.closest('#regulation-form');
