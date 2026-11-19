@@ -846,6 +846,64 @@ def start(request: Request):
     return {"message": "Inscrições encerradas. Primeira rodada iniciada!"}
 
 
+@app.get('/api/admin/disqualifications')
+def admin_disqualifications(request: Request):
+    require_admin(request)
+    with Session() as db:
+        players = db.scalars(select(Player).where(Player.disqualified_at.is_not(None)).order_by(Player.disqualified_at)).all()
+        return {'items': [{
+            'player_id': p.id, 'reason': p.disqualification_reason,
+            'round': p.disqualified_round, 'at': iso(p.disqualified_at)
+        } for p in players]}
+
+
+@app.post('/api/admin/players/{player_id}/disqualify')
+def disqualify_player(player_id: int, data: DisqualificationIn, request: Request):
+    """Desclassificação técnica sem exclusão de jogadores ou partidas.
+    A decisão afeta apenas o confronto da rodada atual.
+    Resultados de partidas individuais e links permanecem preservados."""
+    require_admin(request)
+    with Session.begin() as db:
+        t = db.get(Tournament, 1)
+        if t.status != 'active':
+            fail(409, 'A desclassificação está disponível somente durante o torneio.')
+        player = db.get(Player, player_id)
+        if not player:
+            fail(404, 'Jogador não encontrado.')
+        if player.disqualified_at:
+            fail(409, 'Este jogador já está desclassificado.')
+        match = db.scalar(select(Match).where(
+            Match.round_no == t.current_round,
+            ((Match.player1_id == player.id) | (Match.player2_id == player.id))))
+        if not match:
+            fail(409, 'Jogador não participa da rodada atual ou já foi eliminado.')
+        if match.status not in ('pending', 'draw_pending') and match.winner_id != player.id:
+            fail(409, 'Este jogador já foi eliminado. Não há classificação pendente a cancelar.')
+
+        player.disqualified_at = datetime.now(timezone.utc)
+        player.disqualified_round = t.current_round
+        player.disqualification_reason = data.reason
+        if match.player2_id is None:
+            # Cancela a vaga de quem avançaria automaticamente por folga.
+            match.status = 'dq'
+            match.winner_id = None
+        else:
+            opponent_id = (match.player2_id if match.player1_id == player.id
+                           else match.player1_id)
+            opponent = db.get(Player, opponent_id)
+            if opponent and not opponent.disqualified_at:
+                match.status = 'wo'
+                match.winner_id = opponent.id
+            else:
+                match.status = 'double_wo'
+                match.winner_id = None
+        match.result_source = 'disqualification'
+        # Motivo privado fica apenas no cadastro administrativo.
+        match.notes = 'Decisão administrativa de desclassificação.'
+        # Não removemos game_url ou MatchGame: o histórico jogado é preservado.
+    return {'message': 'Desclassificação registrada. O chaveamento e a classificação foram atualizados.'}
+
+
 @app.post('/api/admin/next-round')
 def next_round(request: Request):
     require_admin(request)
@@ -874,6 +932,18 @@ def editable_match(db, match_id):
     if m.result_source == 'disqualification':
         fail(409, 'Confronto encerrado por desclassificação. O resultado técnico não pode ser alterado.')
     return m
+
+
+class DisqualificationIn(BaseModel):
+    reason: str = Field(min_length=8, max_length=300)
+
+    @field_validator('reason')
+    @classmethod
+    def strip_reason(cls, value):
+        value = ' '.join(value.split())
+        if len(value) < 8:
+            raise ValueError('Informe um motivo de pelo menos 8 caracteres.')
+        return value
 
 
 class MatchColorIn(BaseModel):
