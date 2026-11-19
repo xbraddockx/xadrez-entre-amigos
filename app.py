@@ -149,6 +149,16 @@ class Match(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class MatchGame(Base):
+    __tablename__ = 'match_games'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    match_id: Mapped[int] = mapped_column(Integer, ForeignKey('matches.id'), nullable=False, index=True)
+    outcome: Mapped[str] = mapped_column(String(12), nullable=False)
+    game_url: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    result_source: Mapped[str] = mapped_column(String(30), nullable=False, default='manual')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 Base.metadata.create_all(engine)
 # Migração não destrutiva: os torneios existentes permanecem intactos.
 # No primeiro deploy após esta versão, acrescenta apenas as novas colunas.
@@ -218,6 +228,32 @@ def tournament_settings(t):
     }
 
 
+def game_data(g):
+    return {
+        'id': g.id, 'match_id': g.match_id, 'outcome': g.outcome,
+        'game_url': g.game_url, 'source': g.result_source, 'created_at': iso(g.created_at),
+    }
+
+
+def record_game(db, match, outcome, link, source):
+    # Preserva cada empate e sua partida de desempate no histórico.
+    # Evita duplicar uma mesma partida quando o administrador confirma novamente.
+    existing = None
+    if link:
+        existing = db.scalar(select(MatchGame).where(
+            MatchGame.match_id == match.id, MatchGame.game_url == link))
+    elif outcome != 'draw':
+        existing = db.scalar(select(MatchGame).where(
+            MatchGame.match_id == match.id, MatchGame.game_url.is_(None),
+            MatchGame.outcome != 'draw').order_by(MatchGame.id.desc()))
+    if existing:
+        existing.outcome = outcome
+        existing.result_source = source
+    else:
+        db.add(MatchGame(match_id=match.id, outcome=outcome, game_url=link or None,
+                         result_source=source))
+
+
 def status_data(db):
     t = db.get(Tournament, 1)
     players = db.scalars(select(Player).order_by(Player.created_at, Player.id)).all()
@@ -226,6 +262,7 @@ def status_data(db):
         "status": t.status, "round": t.current_round, "started": iso(t.round_started),
         "deadline": iso(t.deadline), "champion_id": t.champion_id,
         "players": [pdata(p) for p in players], "matches": [mdata(m) for m in matches],
+        "games": [game_data(g) for g in db.scalars(select(MatchGame).order_by(MatchGame.id)).all()],
         "admin_enabled": bool(ADMIN_PASSWORD),
         "settings": tournament_settings(t),
         "viewing_archive": False,
@@ -650,6 +687,7 @@ def create_next_tournament(data: NewTournamentIn, request: Request):
             # Guarda uma cópia completa e imutável da edição anterior antes de limpar os dados ativos.
             db.add(TournamentArchive(title=t.title,
                                      snapshot=json.dumps(previous, ensure_ascii=False)))
+        db.query(MatchGame).delete(synchronize_session=False)
         db.query(Match).delete(synchronize_session=False)
         db.query(Player).delete(synchronize_session=False)
         t.status = 'registration'
@@ -718,6 +756,8 @@ def save_result(match_id: int, data: Result, request: Request):
         m.result_source = 'manual'
         m.game_url = link or None
         m.notes = (data.notes or '')[:300] or None
+        if data.choice in ('p1', 'p2', 'draw'):
+            record_game(db, m, data.choice, link, 'manual')
     return {"message": "Resultado salvo."}
 
 
@@ -749,7 +789,10 @@ def inspect_games(m: Match, db):
         except ValueError:
             continue
         clock = g.get('clock') or {}
-        if clock.get('initial') != t.minutes * 60 or clock.get('increment') != t.increment:
+        allowed = {(t.minutes * 60, t.increment)}
+        if m.status == 'draw_pending':
+            allowed.add((t.tiebreak_minutes * 60, t.tiebreak_increment))
+        if (clock.get('initial'), clock.get('increment')) not in allowed:
             continue
         if g.get('variant') != 'standard':
             continue
@@ -783,7 +826,7 @@ def lichess_games(match_id: int, request: Request):
         m = editable_match(db, match_id)
         t = db.get(Tournament, 1)
         return {"games": inspect_games(m, db),
-                "note": f"Confira qual partida corresponde ao torneio antes de registrar. Empates exigem desempate {t.minutes}+{t.increment}."}
+                "note": f"Confira a partida. Após empate, o desempate será {t.tiebreak_minutes}+{t.tiebreak_increment}."}
 
 
 @app.post('/api/admin/matches/{match_id}/use-game')
@@ -802,6 +845,7 @@ def use_game(match_id: int, data: UseGame, request: Request):
         m.result_source = 'lichess'
         m.game_url = chosen['url']
         m.notes = 'Resultado confirmado pelo administrador após consulta à API.'
+        record_game(db, m, 'draw' if chosen['draw'] else ('p1' if chosen['winner_id'] == m.player1_id else 'p2'), chosen['url'], 'lichess')
     return {"message": "Partida do Lichess confirmada."}
 
 
