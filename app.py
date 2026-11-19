@@ -508,25 +508,40 @@ def apply_lichess_ratings(player, profile, tournament, origin='server'):
 
 
 def retry_one_pending_rating():
-    """Executa após uma visita ao site; não bloqueia a inscrição nem a página."""
+    """Em visitas ao site, consulta um pendente elegível e segue a fila sem repetir o mesmo nick."""
     try:
-        with Session() as db:
-            player = db.scalar(select(Player).where(Player.verified == 0)
-                               .order_by(Player.created_at, Player.id))
+        if lichess_status()['cooldown_seconds']:
+            return
+        now = datetime.now(timezone.utc)
+        cutoff = now - RATINGS_PLAYER_RETRY_INTERVAL
+        with Session.begin() as db:
+            player = db.scalar(select(Player).where(
+                Player.verified == 0,
+                (Player.ratings_attempted_at.is_(None) | (Player.ratings_attempted_at <= cutoff))
+            ).order_by(Player.ratings_attempted_at.asc().nullsfirst(), Player.id))
             if player is None:
                 return
             player_id, nick = player.id, player.nick
+            player.ratings_attempted_at = now
         try:
             profile = get_public_user(nick)
         except HTTPException as error:
-            # Nick informado quando a API estava offline, mas depois inexistente.
             if error.status_code == 400:
                 with Session.begin() as db:
                     player = db.get(Player, player_id)
                     if player and player.verified == 0 and player.nick_key == nick.casefold():
                         player.verified = -1
+                        player.ratings_error = 'Nick não encontrado'
             return
         if profile is None:
+            diagnostic = lichess_status()
+            label = ('Acesso limitado (429)' if diagnostic['rate_limited']
+                     else 'Falha de conexão' if diagnostic['last_status'] == 'network'
+                     else 'Lichess temporariamente indisponível')
+            with Session.begin() as db:
+                player = db.get(Player, player_id)
+                if player and player.verified == 0 and player.nick_key == nick.casefold():
+                    player.ratings_error = label
             return
         with Session.begin() as db:
             player = db.get(Player, player_id)
