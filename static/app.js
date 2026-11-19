@@ -310,7 +310,7 @@ async function downloadBackup(){
  }catch(e){toast(e.message)}
 }
 // Navegação e controles globais
-$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
+$$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
 $('#refresh-button').addEventListener('click',()=>refresh());
 $('#bracket-area').addEventListener('click',e=>{
  const node=e.target.closest('button[data-player-id]');
