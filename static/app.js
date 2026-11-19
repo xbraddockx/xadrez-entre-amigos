@@ -10,7 +10,8 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const nameFor = id => site?.players.find(p=>p.id===id);
-const rating = p => `${p?.rating ?? '—'}${p?.provisional ? '?' : ''}`;
+const rating = p => p?.rating == null ? 's/r' : `${p.rating}${p.provisional ? '?' : ''}`;
+const speedName = () => {const s=60*(site?.settings?.minutes??10)+40*(site?.settings?.increment??0);return s<30?'UltraBullet':s<180?'Bullet':s<480?'Blitz':s<1500?'Rapid':'Classical'};
 const timeLabel = () => `${site?.settings?.minutes ?? 10}+${site?.settings?.increment ?? 0}`;
 const tiebreakLabel = () => String(site?.settings?.tiebreak_minutes??5)+'+'+String(site?.settings?.tiebreak_increment??3);
 const profile = p => p ? `https://lichess.org/@/${encodeURIComponent(p.nick)}` : '#';
@@ -118,14 +119,14 @@ function render(){
  $('#signup-submit').disabled=locked;
  $('#signup-submit').innerHTML=locked?'Inscrições indisponíveis':'Confirmar inscrição <span>↗</span>';
  $('#player-counter').textContent=`${site.players.length} jogador${site.players.length===1?'':'es'}`;
- const sorted=[...site.players].sort((a,b)=>b.rating-a.rating);
- $('#player-list').innerHTML=sorted.length?sorted.map(p=>`<div class="player-row"><div class="player-info"><div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div><div><strong>${esc(p.name)}</strong><a href="${profile(p)}" target="_blank" rel="noopener noreferrer">@${esc(p.nick)} ↗</a></div></div><div class="rating">${rating(p)}<small>${p.rating_official!==null?'Rapid Lichess':p.verified?'Rating informado':'Não verificado'}</small></div></div>`).join(''):
+ const sorted=[...site.players].sort((a,b)=>a.name.localeCompare(b.name,'pt-BR'));
+ $('#player-list').innerHTML=sorted.length?sorted.map(p=>`<div class="player-row"><div class="player-info"><div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div><div><strong>${esc(p.name)}</strong><a href="${profile(p)}" target="_blank" rel="noopener noreferrer">@${esc(p.nick)} ↗</a></div></div><div class="rating"><small>Inscrito</small></div></div>`).join(''):
  `<div class="empty"><span class="empty-mark">♙</span><strong>O tabuleiro está pronto.</strong><p>Os jogadores aparecerão aqui assim que se inscreverem.</p></div>`;
  renderBracket();
  renderRanking();
  if(admin&&!archiveId)renderAdmin();
 }
-function playerLine(p,winner=false){return `<span class="match-player ${winner?'win':''}" title="${esc(p?.name||'')}">${p?`<a href="${profile(p)}" target="_blank" rel="noopener noreferrer">${esc(p.nick)}</a>`:'A definir'}</span><span class="match-rating">${p?rating(p):''}</span>`}
+function playerLine(p,winner=false){return `<span class="match-player ${winner?'win':''}" title="${esc(p?.name||'')}">${p?`<a href="${profile(p)}" target="_blank" rel="noopener noreferrer">${esc(p.nick)}</a>`:'A definir'}</span>`}
 function bracketCard(item, i, isPreview=false){
  const p1=nameFor(isPreview?item[0]:item.p1);
  const p2=nameFor(isPreview?item[1]:item.p2);
@@ -146,7 +147,7 @@ function treeScore(match,id){
 function treePlayer(p,match,ghost=false){
  if(!p)return '<div class="tree-player tree-player-empty"><span class="tree-avatar">♙</span><span class="tree-player-meta"><strong>A definir</strong><small>Próxima fase</small></span></div>';
  const win=match&&match.winner===p.id;
- return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(rating(p))+'</small></span><span class="tree-color-and-score">'+(!ghost&&match?.p2?(match.white_id?'<span class="color-chip '+(match.white_id===p.id?'white-piece':'black-piece')+'">'+(match.white_id===p.id?'♔ Brancas':'♚ Pretas')+'</span>':'<span class="color-chip unknown-piece">Cor não registrada</span>'):'')+'<span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></span></button>';
+ return '<button class="tree-player '+(win?'tree-player-win':'')+'" type="button" data-player-id="'+p.id+'" aria-label="Ver histórico de '+esc(p.name)+'"><span class="tree-avatar">'+esc(p.name.slice(0,1).toUpperCase())+'</span><span class="tree-player-meta"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+' · '+esc(speedName())+' '+esc(rating(p))+'</small></span><span class="tree-color-and-score">'+(!ghost&&match?.p2?(match.white_id?'<span class="color-chip '+(match.white_id===p.id?'white-piece':'black-piece')+'">'+(match.white_id===p.id?'♔ Brancas':'♚ Pretas')+'</span>':'<span class="color-chip unknown-piece">Cor não registrada</span>'):'')+'<span class="tree-score">'+(ghost?'—':treeScore(match,p.id))+'</span></span></button>';
 }
 function treeMatch(match,index,isPreview=false){
  const p1=nameFor(match?.p1),p2=nameFor(match?.p2);
@@ -242,7 +243,7 @@ function standings(){
  }
  ranked.sort((a,b)=>Number(b.id===site.champion_id)-Number(a.id===site.champion_id)
    ||b.roundReached-a.roundReached||b.matchWins-a.matchWins||b.score-a.score
-   ||b.wins-a.wins||b.rating-a.rating||a.name.localeCompare(b.name,'pt-BR'));
+   ||b.wins-a.wins||a.name.localeCompare(b.name,'pt-BR'));
  return ranked;
 }
 function trophyIcon(i){
@@ -258,7 +259,7 @@ function renderRanking(){
  const players=standings(),final=site.status==='finished';
  const podium=players.slice(0,3).map((p,i)=>'<article class="podium-card podium-'+(i+1)+'"><div class="podium-label">'+trophyIcon(i)+'<span>'+ (i+1)+'º LUGAR</span></div><button data-player-id="'+p.id+'" class="podium-name"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button><span class="podium-stats">'+p.matchWins+' confrontos vencidos · '+formatPoints(p.score)+' pontos</span></article>').join('');
  const rows=players.map((p,i)=>'<tr><td class="rank-pos">'+(i<3?trophyIcon(i):String(i+1)+'º')+'</td><td><button class="rank-player" data-player-id="'+p.id+'"><strong>'+esc(p.name)+'</strong><small>@'+esc(p.nick)+'</small></button></td><td>'+p.roundReached+'ª</td><td>'+p.matchWins+'</td><td>'+p.wins+'</td><td>'+p.draws+'</td><td>'+p.losses+'</td><td class="rank-score">'+formatPoints(p.score)+'</td><td>'+p.colors.white+' / '+p.colors.black+'</td></tr>').join('');
- root.innerHTML='<div class="ranking-note"><strong>'+(final?'Classificação final':'Classificação provisória')+'</strong><span>'+(final?'Torneio concluído':'As posições podem mudar até o encerramento.')+'</span></div><div class="ranking-podium">'+podium+'</div><section class="panel ranking-panel"><h3>Tabela geral</h3><div class="ranking-table-scroll"><table class="ranking-table"><thead><tr><th>Pos.</th><th>Jogador</th><th>Fase</th><th>Confrontos</th><th>V</th><th>E</th><th>D</th><th>Pontos</th><th>Brancas / Pretas</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="ranking-criteria">Ordenação: campeão, fase alcançada, confrontos vencidos, pontos das partidas, vitórias e rating como último critério. W.O. e folga não contam como partida jogada. Sem uma disputa de terceiro lugar, o bronze é determinado pelos critérios da tabela, não por uma partida específica.</p></section>';
+ root.innerHTML='<div class="ranking-note"><strong>'+(final?'Classificação final':'Classificação provisória')+'</strong><span>'+(final?'Torneio concluído':'As posições podem mudar até o encerramento.')+'</span></div><div class="ranking-podium">'+podium+'</div><section class="panel ranking-panel"><h3>Tabela geral</h3><div class="ranking-table-scroll"><table class="ranking-table"><thead><tr><th>Pos.</th><th>Jogador</th><th>Fase</th><th>Confrontos</th><th>V</th><th>E</th><th>D</th><th>Pontos</th><th>Brancas / Pretas</th></tr></thead><tbody>'+rows+'</tbody></table></div><p class="ranking-criteria">Ordenação: campeão, fase alcançada, confrontos vencidos, pontos das partidas, vitórias e ordem alfabética como último critério. W.O. e folga não contam como partida jogada. Sem uma disputa de terceiro lugar, o bronze é determinado pelos critérios da tabela, não por uma partida específica.</p></section>';
 }
 
 function scoreForGame(game,match,id){
@@ -287,7 +288,7 @@ function openPlayerHistory(playerId){
  }
  history.sort((a,b)=>b.round-a.round||b.index-a.index);
  const rows=history.map(h=>'<div class="history-row"><span class="history-score '+(h.score==='1'?'history-win':h.score==='0'?'history-loss':'history-draw')+'">'+h.score+'</span><div class="history-row-detail"><strong>Rodada '+h.round+' · '+esc(h.name)+'</strong><small>'+esc(h.rival?'vs '+h.rival.name+' (@'+h.rival.nick+')':'sem adversário')+'</small></div>'+(h.url?'<a href="'+esc(h.url)+'" target="_blank" rel="noopener noreferrer" class="history-open">Ver no Lichess ↗</a>':'<span class="history-no-link">Sem link</span>')+'</div>').join('');
- $('#player-dialog-content').innerHTML='<span class="mini-label">HISTÓRICO DE PARTIDAS</span><h3 id="player-dialog-title">'+esc(p.name)+'</h3><p class="player-dialog-info"><a href="'+profile(p)+'" target="_blank" rel="noopener noreferrer">@'+esc(p.nick)+' ↗</a> · '+esc(rating(p))+' Rapid</p><p class="history-intro">Pontuação por partida: <strong>1</strong> vitória, <strong>1/2</strong> empate, <strong>0</strong> derrota. W.O. e folgas são identificados separadamente.</p><div class="history-list">'+(rows||'<div class="empty">O jogador ainda não possui confrontos nesta edição.</div>')+'</div>';
+ $('#player-dialog-content').innerHTML='<span class="mini-label">HISTÓRICO DE PARTIDAS</span><h3 id="player-dialog-title">'+esc(p.name)+'</h3><p class="player-dialog-info"><a href="'+profile(p)+'" target="_blank" rel="noopener noreferrer">@'+esc(p.nick)+' ↗</a></p><p class="history-intro">Pontuação por partida: <strong>1</strong> vitória, <strong>1/2</strong> empate, <strong>0</strong> derrota. W.O. e folgas são identificados separadamente.</p><div class="history-list">'+(rows||'<div class="empty">O jogador ainda não possui confrontos nesta edição.</div>')+'</div>';
  const modal=$('#player-dialog');modal.classList.remove('hidden');document.body.classList.add('modal-open');$('#player-dialog-close').focus();
 }
 function closePlayerHistory(){
@@ -311,7 +312,7 @@ function renderAdmin(){
  renderAdminColors();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
-  controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)} · ${rating(p)} ${p.rating_official!==null?'(oficial)':'(informado)'}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
+  controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Ao iniciar, o chaveamento é sorteado e publicado. Novas inscrições não serão aceitas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div><section class="admin-players"><h3>Gerenciar inscrições (${site.players.length})</h3>${site.players.map(p=>`<div class="admin-player-row"><span><strong>${esc(p.name)}</strong> · @${esc(p.nick)}</span><button data-delete-player="${p.id}">Remover</button></div>`).join('')}</section>`;
   $('#admin-match-list').innerHTML='';return;
  }
  const current=site.matches.filter(m=>m.round===site.round);
@@ -413,7 +414,7 @@ $('#signup-form').addEventListener('submit',async e=>{
  e.preventDefault();const form=e.currentTarget,btn=$('#signup-submit'),msg=$('#signup-message');
  btn.disabled=true;msg.className='form-message';msg.textContent='Conferindo usuário e rating…';
  try{const d=await api('/api/register',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(form).entries()))});
- msg.className='form-message success';msg.textContent=d.player.rating_official!==null?`Inscrito! Rating Rapid oficial utilizado: ${d.player.rating}${d.player.provisional?'?':''}.`:'Inscrição realizada! Rating informado salvo.';
+  msg.className='form-message success';msg.textContent='Inscrição confirmada! Os ratings disponíveis foram consultados no Lichess para o pareamento.';
  form.reset();await refresh();
  }catch(error){msg.className='form-message error';msg.textContent=error.message}
  finally{btn.disabled=site?.status!=='registration'}
