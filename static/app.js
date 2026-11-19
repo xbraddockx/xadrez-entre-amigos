@@ -642,6 +642,10 @@ $('#logout-button').addEventListener('click',()=>doAction('/api/admin/logout',{m
 $('#admin-dashboard').addEventListener('click',async e=>{
  const b=e.target.closest('button');if(!b)return;
  if(b.id==='download-backup'){downloadBackup();return;}
+ if(b.dataset.reloadRatings){await loadAdminRatings();renderAdminRatings();return;}
+ if(b.dataset.refreshRating){await retryRatingManually(Number(b.dataset.refreshRating));return;}
+ if(b.dataset.editRating){ratingEditorId=Number(b.dataset.editRating);renderAdminRatings();return;}
+ if(b.dataset.cancelRating){ratingEditorId=0;renderAdminRatings();return;}
  if(b.dataset.openArchiveDelete){openArchiveDeletion(Number(b.dataset.openArchiveDelete));return;}
  if(b.dataset.cancelArchiveDelete){const slot=$('#archive-delete-slot-'+b.dataset.cancelArchiveDelete);if(slot)slot.replaceChildren();return;}
  if(b.id==='toggle-new'){newEditionOpen=!newEditionOpen;renderAdmin();return;}
@@ -665,6 +669,28 @@ $('#admin-dashboard').addEventListener('change',e=>{
  if(checkbox){const key=checkbox.dataset.importNick.toLowerCase();if(checkbox.checked)importSelected.add(key);else importSelected.delete(key);renderAdminImport()}
 });
 $('#admin-dashboard').addEventListener('submit',async e=>{
+ const ratingForm=e.target.closest('form[data-rating-player]');
+ if(ratingForm){
+  e.preventDefault();
+  const id=Number(ratingForm.dataset.ratingPlayer),fd=new FormData(ratingForm);
+  const payload={};
+  for(const speed of ['classical','rapid','blitz']){
+   const raw=String(fd.get(speed)||'').trim();
+   if(raw&&!/^[0-9]+$/.test(raw)){toast('Informe apenas números inteiros para os ratings.');return;}
+   payload[speed]=raw?Number(raw):null;
+   if(payload[speed]!==null&&(payload[speed]<400||payload[speed]>3500)){
+    toast('Os ratings devem ficar entre 400 e 3500.');return;
+   }
+  }
+  try{
+   const response=await api('/api/admin/players/'+id+'/ratings',{method:'PUT',body:JSON.stringify(payload)});
+   toast(response.message||'Ratings salvos.');
+   ratingEditorId=0;
+   await loadAdminRatings(true);
+   await refresh();
+  }catch(error){toast(error.message)}
+  return;
+ }
  const deleteArchive=e.target.closest('form[data-archive-delete-id]');
  if(deleteArchive){
   e.preventDefault();
