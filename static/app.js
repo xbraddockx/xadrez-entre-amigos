@@ -460,4 +460,6 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
  const payload=Object.fromEntries(new FormData(form).entries());
  await doAction(`/api/admin/matches/${form.dataset.matchId}/result`,{method:'POST',body:JSON.stringify(payload)},'Confirmar e publicar este resultado?');
 });
-refresh().then(()=>{const deep=location.hash.slice(1);if(['inscricoes','chaves','regras','classificacao'].includes(deep))tab(deep)});setInterval(()=>refresh(true),30000);
+function restoreTabFromUrl(){const deep=location.hash.slice(1);if(site&&['inscricoes','chaves','regras','classificacao'].includes(deep))tab(deep)}
+window.addEventListener('hashchange',restoreTabFromUrl);
+refresh().then(restoreTabFromUrl);setInterval(()=>refresh(true),30000);
