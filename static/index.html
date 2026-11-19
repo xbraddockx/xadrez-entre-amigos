@@ -31,7 +31,7 @@
         <h1>O próximo lance<br/>pode ser <em>seu.</em></h1>
         <p id="hero-description" class="hero-desc">Uma copa eliminatória onde cada partida importa. Inscreva-se, descubra seu adversário e dispute o título!</p>
         <div class="hero-pills"><span>♟ &nbsp; Mata-mata</span><span id="hero-time">◷ &nbsp; 10+0</span><span id="hero-deadline">▦ &nbsp; 5 dias por rodada</span><span class="hidden" id="hero-prize"></span></div>
-        <div class="hero-actions"><button class="btn primary" data-tab="inscricoes" data-scroll-target="signup-form">Quero participar <span>↗</span></button><button class="btn ghost" data-tab="chaves" data-scroll-target="bracket-area">Ver confrontos <span>→</span></button></div>
+        <div class="hero-actions"><button class="btn primary" data-tab="inscricoes" data-scroll-target="signup-panel">Quero participar <span>↗</span></button><button class="btn ghost" data-tab="chaves" data-scroll-target="bracket-area">Ver confrontos <span>→</span></button></div>
       </div>
       <div class="hero-art" aria-hidden="true">
         <div class="chess-ring ring-one"></div><div class="chess-ring ring-two"></div>
@@ -54,7 +54,7 @@
 
       <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Preencha seus dados. O rating do Lichess na modalidade Rapid será priorizado quando disponível.</p></div></div>
       <div class="entry-grid">
-        <section class="panel form-panel" aria-labelledby="form-title">
+        <section class="panel form-panel" id="signup-panel" aria-labelledby="form-title">
           <div class="panel-heading"><div class="panel-number">01</div><div><h3 id="form-title">Inscrição do jogador</h3><p>Gratuita e aberta a todos os níveis.</p></div></div>
           <form id="signup-form" autocomplete="on">
             <label for="signup-name">Seu nome</label><input id="signup-name" name="name" required minlength="2" maxlength="70" placeholder="Ex.: João Silva" />
