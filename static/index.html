@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#0d1a28" />
   <meta name="description" content="Inscrições, sorteio por rating e resultados da Copa Mata-Mata de Xadrez Entre Amigos." />
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
-  <link rel="stylesheet" href="/static/app.css?v=gerenciar-arquivos-20261119" />
+  <link rel="stylesheet" href="/static/app.css?v=inscricoes-resilientes-20261119" />
   <title>Copa Mata-Mata | Xadrez Entre Amigos</title>
 </head>
 <body>
@@ -52,14 +52,14 @@
       <div class="stat stat-last"><span class="stat-label">STATUS</span><span id="status-pill" class="status-pill"><span class="pulse"></span> Inscrições abertas</span></div>
     </section>
 
-      <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Informe seu nome e nick do Lichess. O sistema buscará automaticamente os ratings para organizar os confrontos.</p></div></div>
+      <div class="section-intro"><div><span class="mini-label">01 / ENTRE NO JOGO</span><h2>Sua jornada começa aqui.</h2><p>Informe seu nome e nick do Lichess. O sistema tentará consultar os ratings para organizar os confrontos. Se o Lichess estiver indisponível, sua inscrição será aceita e o rating poderá ser atualizado depois.</p></div></div>
       <div class="entry-grid">
         <section class="panel form-panel" id="signup-panel" aria-labelledby="form-title">
           <div class="panel-heading"><div class="panel-number">01</div><div><h3 id="form-title">Inscrição do jogador</h3><p>Gratuita e aberta a todos os níveis.</p></div></div>
           <form id="signup-form" autocomplete="on" novalidate>
             <label for="signup-name">Seu nome</label><input id="signup-name" name="name" required minlength="2" maxlength="70" placeholder="Ex.: João Silva" />
             <label for="signup-nick">Usuário do Lichess</label><div class="input-prefix"><span>@</span><input id="signup-nick" name="nick" required minlength="2" maxlength="30" placeholder="seu_nick" spellcheck="false" /></div>
-            <div class="input-hint">Consultamos automaticamente os ratings públicos de seu perfil no Lichess. Somente o rating da modalidade do torneio poderá aparecer no chaveamento. Os demais ficam reservados ao sistema para organizar confrontos equilibrados. Ao se inscrever, você concorda com a exibição pública do seu nome, nick e rating do ritmo do torneio apenas no chaveamento.</div>
+            <div class="input-hint">Tentamos consultar automaticamente os ratings públicos de seu perfil no Lichess. Se houver falha de conexão, a inscrição será confirmada normalmente, e tentaremos consultar o rating posteriormente. Somente o rating da modalidade do torneio poderá aparecer no chaveamento. Os demais ficam reservados ao sistema para organizar confrontos equilibrados. Ao se inscrever, você concorda com a exibição pública do seu nome, nick e rating do ritmo do torneio apenas no chaveamento.</div>
             <div class="signup-consent" id="signup-consent">
               <input type="checkbox" id="signup-agree" name="agreed_to_rules" value="true" aria-describedby="signup-agreement-warning" aria-required="true" />
               <label for="signup-agree">Estou de acordo com o <a href="#regras" id="signup-regulation-link" class="regulation-link" aria-haspopup="dialog" aria-controls="regulation-dialog">Regulamento</a>.</label>
@@ -115,6 +115,7 @@
         <div class="admin-export"><span>Backup de segurança: salve uma cópia dos torneios e resultados no seu computador.</span><button id="download-backup" class="btn slim backup">Baixar histórico em JSON ↓</button></div>
         <div id="admin-archives"></div>
         <div id="admin-controls"></div>
+        <div id="admin-ratings"></div>
         <div id="admin-disqualifications"></div>
         <div id="admin-match-list"></div>
         <div id="admin-colors"></div>
@@ -147,6 +148,6 @@
     </div>
   </div>
   <div id="toast" role="status" aria-live="polite"></div>
-  <script src="/static/app.js?v=gerenciar-arquivos-20261119" defer></script>
+  <script src="/static/app.js?v=inscricoes-resilientes-20261119" defer></script>
 </body>
 </html>
