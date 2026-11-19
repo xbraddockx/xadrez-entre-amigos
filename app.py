@@ -516,8 +516,6 @@ def add_round(db, t, advancing: list[Player]):
 class Signup(BaseModel):
     name: str = Field(min_length=2, max_length=70)
     nick: str = Field(min_length=2, max_length=30)
-    rating: int = Field(ge=400, le=3500)
-
     @field_validator('name')
     @classmethod
     def strip_name(cls, v):
@@ -633,7 +631,13 @@ def archived_tournament(archive_id: int):
         a = db.get(TournamentArchive, archive_id)
         if not a:
             fail(404, 'Edição anterior não encontrada.')
-        return {**json.loads(a.snapshot), 'viewing_archive': True,
+        data = json.loads(a.snapshot)
+        # Remove classificações internas dos históricos legados no endpoint público.
+        data['players'] = [{
+            'id': p['id'], 'name': p['name'], 'nick': p['nick'],
+            'rating': p.get('rating'), 'provisional': p.get('provisional', False)
+        } for p in data.get('players', [])]
+        return {**data, 'viewing_archive': True,
                 'archive_id': a.id, 'archived_at': iso(a.archived_at)}
 
 
@@ -674,23 +678,18 @@ def register(data: Signup, request: Request):
         if db.scalar(select(Player.id).where(Player.nick_key == data.nick.casefold())):
             fail(409, "Esse nick já está inscrito.")
     public = get_public_user(data.nick)
-    official = None
-    provisional = False
-    verified = False
-    if public:
-        verified = True
-        account = public.get('username') or public.get('id') or data.nick
-        perfs = (public.get('perfs') or {}).get('rapid') or {}
-        official = perfs.get('rating')
-        provisional = bool(perfs.get('prov', False))
-        if not isinstance(official, int):
-            official = None
-    else:
-        account = data.nick
+    if public is None:
+        fail(503, 'O Lichess está temporariamente indisponível. Tente novamente mais tarde.')
+    account = public.get('username') or public.get('id') or data.nick
+    ratings = ratings_from_lichess(public)
+    with Session() as db:
+        t = db.get(Tournament, 1)
+        speed = speed_for_clock(t.minutes, t.increment)
+    current = ratings.get(speed) or {}
     p = Player(name=data.name, nick=account, nick_key=account.casefold(),
-               rating_reported=data.rating, rating_official=official,
-               rating=official if official is not None else data.rating,
-               provisional=int(provisional), verified=int(verified))
+               rating_reported=1500, rating_official=(ratings.get('rapid') or {}).get('rating'),
+               rating=current.get('rating') or 1500, provisional=int(bool(current.get('prov'))),
+               verified=1, ratings_json=json.dumps(ratings, ensure_ascii=False))
     try:
         with Session.begin() as db:
             if db.get(Tournament, 1).status != 'registration':
@@ -699,7 +698,7 @@ def register(data: Signup, request: Request):
     except IntegrityError:
         fail(409, "Esse nick já está inscrito.")
     queue.append(now)
-    return {"message": "Inscrição registrada!", "player": pdata(p)}
+    return {"message": "Inscrição registrada!", "player": {"id": p.id, "name": p.name, "nick": p.nick}}
 
 
 @app.get('/api/admin/session')
