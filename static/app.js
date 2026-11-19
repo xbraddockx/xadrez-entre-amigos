@@ -310,7 +310,7 @@ async function downloadBackup(){
  }catch(e){toast(e.message)}
 }
 // Navegação e controles globais
-$$('[data-tab]').forEach(el=>el.addEventListener('click',()=>tab(el.dataset.tab)));
+$('[data-tab]').forEach(el=>el.addEventListener('click',()=>{if(['chaves','regras','inscricoes'].includes(el.dataset.tab))history.replaceState(null,'','#'+el.dataset.tab);tab(el.dataset.tab)}));
 $('#refresh-button').addEventListener('click',()=>refresh());
 $('#bracket-area').addEventListener('click',e=>{
  const node=e.target.closest('button[data-player-id]');
@@ -368,4 +368,4 @@ $('#admin-dashboard').addEventListener('submit',async e=>{
  const payload=Object.fromEntries(new FormData(form).entries());
  await doAction(`/api/admin/matches/${form.dataset.matchId}/result`,{method:'POST',body:JSON.stringify(payload)},'Confirmar e publicar este resultado?');
 });
-refresh();setInterval(()=>refresh(true),30000);
+refresh().then(()=>{const deep=location.hash.slice(1);if(['inscricoes','chaves','regras'].includes(deep))tab(deep)});setInterval(()=>refresh(true),30000);
