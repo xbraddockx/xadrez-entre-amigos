@@ -211,6 +211,12 @@ function renderBracket(){
   $('#bracket-subtitle').textContent='Nenhuma rodada foi iniciada.';
   return;
  }
+ if(isPreview&&site.players.length===1){
+  const p=site.players[0];
+  area.innerHTML='<div class="panel bracket-empty"><div class="empty"><span class="empty-mark">♙</span><strong>'+esc(p.name)+' aguarda adversário</strong><p>@'+esc(p.nick)+' está inscrito. O primeiro confronto será formado quando houver mais um participante.</p></div></div>';
+  $('#bracket-subtitle').textContent='1 inscrito · aguardando mais um participante. Nenhuma rodada foi iniciada.';
+  return;
+ }
  const entries=Array.isArray(preview.matches)?preview.matches:[];
  const waitingId=isPreview?(preview.waiting||null):null;
  if(isPreview){
