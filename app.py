@@ -680,39 +680,76 @@ def balanced_colors(p1, p2, balances, rng):
 
 
 def add_round(db, t, advancing: list[Player]):
-    if len(advancing) == 1:
-        t.status = "finished"
-        t.champion_id = advancing[0].id
+    """A chave oficial converge sempre para a final, sem abrir caminhos paralelos.
+
+    Na primeira rodada: sorteia pares próximos em rating e distribui folgas.
+    Nas seguintes: cada posição recebe apenas os vencedores das duas
+    posições adjacentes da rodada anterior (1+2, 3+4, ...).
+    """
+    if len(advancing) <= 1:
+        t.status = 'finished'
+        t.champion_id = advancing[0].id if advancing else None
         t.round_started = None
         t.deadline = None
         return
-    if not advancing:
-        t.status = "finished"
-        t.champion_id = None
-        t.round_started = None
-        t.deadline = None
-        return
-    t.current_round += 1
+
+    rng = random.SystemRandom()
+    balances = color_balance(db)
+    next_round_number = t.current_round + 1
+    scheduled = []
+    if t.current_round == 0:
+        pairs, byes = choose_pairs(
+            advancing, bye_counts(db), rng, speed_for_clock(t.minutes, t.increment))
+        scheduled = [('pair', p1, p2) for p1, p2 in pairs]
+        scheduled.extend(('bye', player, None) for player in byes)
+        rng.shuffle(scheduled)
+        expected = 1 << (len(advancing) - 1).bit_length()
+        if len(scheduled) != expected // 2:
+            raise ValueError('Quantidade de posições da chave inicial inválida.')
+        round_slots = list(enumerate(scheduled, 1))
+    else:
+        previous = db.scalars(select(Match).where(
+            Match.round_no == t.current_round).order_by(Match.sort_order)).all()
+        by_position = {m.sort_order: m for m in previous}
+        first_count = db.scalar(select(func.count()).select_from(Match).where(
+            Match.round_no == 1))
+        expected_slots = first_count // (2 ** t.current_round)
+        if expected_slots < 1:
+            raise ValueError('A chave já chegou à sua última fase.')
+        round_slots = []
+        for i in range(1, expected_slots + 1):
+            pair = [by_position.get(2 * i - 1), by_position.get(2 * i)]
+            winners = []
+            for match in pair:
+                if not match or not match.winner_id:
+                    continue
+                player = db.get(Player, match.winner_id)
+                if player and not player.disqualified_at:
+                    winners.append(player)
+            if len(winners) == 2:
+                round_slots.append((i, ('pair', winners[0], winners[1])))
+            elif len(winners) == 1:
+                round_slots.append((i, ('bye', winners[0], None)))
+            # Se ambos os lados foram eliminados, mantém a posição vazia,
+            # preservando os índices das outras ramificações.
+
+    t.current_round = next_round_number
     t.round_started = datetime.now(timezone.utc)
     t.deadline = t.round_started + timedelta(days=t.round_days)
-    rng = random.SystemRandom()
-    pairs, bye = choose_pairs(advancing, bye_counts(db), rng, speed_for_clock(t.minutes, t.increment))
-    balances = color_balance(db)
-    idx = 1
-    for p1, p2 in pairs:
+    for position, (kind, p1, p2) in round_slots:
+        if kind == 'bye':
+            db.add(Match(
+                round_no=t.current_round, sort_order=position,
+                player1_id=p1.id, player2_id=None, winner_id=p1.id,
+                status='bye', result_source='automatic'))
+            continue
         white = balanced_colors(p1, p2, balances, rng)
-        db.add(Match(round_no=t.current_round, sort_order=idx,
-                     player1_id=p1.id, player2_id=p2.id, white_id=white, status="pending"))
-        # Equilibra cada escolha feita dentro da própria rodada.
+        db.add(Match(
+            round_no=t.current_round, sort_order=position, player1_id=p1.id,
+            player2_id=p2.id, white_id=white, status='pending'))
         black = p2.id if white == p1.id else p1.id
         balances[white] += 1
         balances[black] -= 1
-        idx += 1
-    for p in bye:
-        db.add(Match(round_no=t.current_round, sort_order=idx,
-                     player1_id=p.id, player2_id=None, winner_id=p.id,
-                     status="bye", result_source="automatic"))
-        idx += 1
 
 
 class Signup(BaseModel):
