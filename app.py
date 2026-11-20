@@ -703,14 +703,16 @@ def add_round(db, t, advancing: list[Player]):
     next_round_number = t.current_round + 1
     scheduled = []
     if t.current_round == 0:
-        pairs, byes = choose_pairs(
-            advancing, bye_counts(db), rng, speed_for_clock(t.minutes, t.increment))
-        scheduled = [('pair', p1, p2) for p1, p2 in pairs]
-        scheduled.extend(('bye', player, None) for player in byes)
+        # Durante as inscrições não há classificados por folga. O início
+        # oficial usa todos os inscritos em confrontos (n/2), sem promoção
+        # antecipada. Para números não-potência-de-2, folgas só poderão
+        # surgir nas rodadas seguintes, após autorização do organizador.
+        if len(advancing) % 2:
+            raise ValueError('A primeira rodada exige número par de inscritos.')
+        ids = {p.id: p for p in advancing}
+        preview = preview_bracket(advancing, t)
+        scheduled = [('pair', ids[a], ids[b]) for a, b in preview['pairs']]
         rng.shuffle(scheduled)
-        expected = 1 << (len(advancing) - 1).bit_length()
-        if len(scheduled) != expected // 2:
-            raise ValueError('Quantidade de posições da chave inicial inválida.')
         round_slots = list(enumerate(scheduled, 1))
     else:
         previous = db.scalars(select(Match).where(
@@ -718,7 +720,7 @@ def add_round(db, t, advancing: list[Player]):
         by_position = {m.sort_order: m for m in previous}
         first_count = db.scalar(select(func.count()).select_from(Match).where(
             Match.round_no == 1))
-        expected_slots = first_count // (2 ** t.current_round)
+        expected_slots = math.ceil(first_count / (2 ** t.current_round))
         if expected_slots < 1:
             raise ValueError('A chave já chegou à sua última fase.')
         round_slots = []
@@ -1470,6 +1472,8 @@ def start(request: Request):
         participants = db.scalars(select(Player)).all()
         if len(participants) < 2:
             fail(409, 'São necessários pelo menos 2 inscritos.')
+        if len(participants) % 2:
+            fail(409, 'Há um inscrito aguardando adversário. Aguarde mais uma inscrição para fechar os confrontos.')
         t.status = 'active'
         add_round(db, t, participants)
     return {"message": "Inscrições encerradas. Primeira rodada iniciada!"}
