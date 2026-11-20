@@ -577,7 +577,7 @@ function renderAdmin(){
  renderAdminRatings();
  const controls=$('#admin-controls');
  if(site.status==='registration'){
-  controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Você já pode encerrar com ${site.players.length} inscritos. O sistema resolve automaticamente as folgas sem exigir 4, 8, 16 ou 32 jogadores. Ao iniciar, o sorteio oficial é publicado e novas inscrições são encerradas. Cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2?'disabled':''}>Realizar sorteio oficial →</button></div>`;
+  controls.innerHTML=`<div class="admin-action-row"><div><h3>Encerrar inscrições e iniciar a copa</h3><p>Durante as inscrições, os confrontos são apenas provisórios. Cada par completo ocupa uma vaga na primeira rodada. Se houver um inscrito sem adversário, aguarde mais uma inscrição. Somente o organizador pode iniciar a competição, e cada rodada terá ${site.settings?.round_days||5} dias corridos.</p></div><button id="start-tourney" class="btn primary" ${site.players.length<2||site.players.length%2!==0?'disabled':''}>Realizar sorteio oficial →</button></div>${site.players.length%2!==0?'<p class="admin-help">1 inscrito aguarda adversário. O sorteio ficará disponível quando o número de participantes for par.</p>':''}`;
   $('#admin-match-list').innerHTML='';return;
  }
  const current=site.matches.filter(m=>m.round===site.round);
