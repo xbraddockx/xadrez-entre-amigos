@@ -601,39 +601,44 @@ def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: rand
 
 
 def preview_bracket(players, tournament):
-    """Prévia com posições fixas até a capacidade da chave mudar (2, 4, 8...).
+    """Prévia informativa: apenas pares completos e, se ímpar, um aguardando.
 
-    Os primeiros jogadores ocupam vagas únicas; cada nova inscrição preenche
-    a vaga de adversário mais próximo em rating, sem criar novas chaves.
-    Os adversários oficiais são sorteados somente após encerrar inscrições.
+    Não cria folgas, não classifica ninguém e não persiste confrontos.
+    Ordena pelo rating correspondente ao ritmo e busca a menor diferença
+    total entre adversários. Os confrontos são oficiais somente após
+    o organizador iniciar o torneio.
     """
     n = len(players)
-    if n < 2:
-        return {'matches': [], 'pairs': [], 'byes': [], 'field_size': 0,
+    if not n:
+        return {'matches': [], 'pairs': [], 'waiting': None,
                 'first_round_matches': 0}
-    field_size = 1 << (n - 1).bit_length()
-    slots_number = field_size // 2
-    rng = random.Random(int(hashlib.sha256(
-        f'{tournament.id}:{tournament.title}:vagas'.encode()).hexdigest()[:16], 16))
-    anchors = list(players[:slots_number])
-    rng.shuffle(anchors)
-    slots = [{'p1': p.id, 'p2': None, 'status': 'bye', 'order': i + 1}
-             for i, p in enumerate(anchors)]
-    indexed = {p.id: p for p in players}
+
     speed = speed_for_clock(tournament.minutes, tournament.increment)
-    for extra in players[slots_number:]:
-        open_indexes = [i for i, slot in enumerate(slots) if slot['p2'] is None]
-        best = min(open_indexes, key=lambda i: (
-            abs(pairing_rating(indexed[slots[i]['p1']], speed) -
-                pairing_rating(extra, speed)), i))
-        slots[best]['p2'] = extra.id
-        slots[best]['status'] = 'pending'
+    ordered = sorted(players, key=lambda p: (pairing_rating(p, speed), p.id))
+
+    waiting = None
+    if n % 2:
+        # Em uma lista ordenada por força, o menor custo de pareamento
+        # é obtido com vizinhos. Escolhe a única espera que minimiza
+        # a diferença total entre todos os pares formados.
+        def pairing_cost(skip_index):
+            remaining = ordered[:skip_index] + ordered[skip_index + 1:]
+            return sum(abs(pairing_rating(remaining[i], speed) -
+                           pairing_rating(remaining[i + 1], speed))
+                       for i in range(0, len(remaining), 2))
+        waiting_index = min(range(n), key=lambda idx: (pairing_cost(idx), -idx))
+        waiting = ordered.pop(waiting_index).id
+
+    matches = [
+        {'p1': ordered[i].id, 'p2': ordered[i + 1].id,
+         'status': 'pending', 'order': i // 2 + 1}
+        for i in range(0, len(ordered), 2)
+    ]
     return {
-        'matches': slots,
-        'pairs': [[slot['p1'], slot['p2']] for slot in slots if slot['p2']],
-        'byes': [slot['p1'] for slot in slots if not slot['p2']],
-        'field_size': field_size,
-        'first_round_matches': slots_number,
+        'matches': matches,
+        'pairs': [[match['p1'], match['p2']] for match in matches],
+        'waiting': waiting,
+        'first_round_matches': len(matches),
     }
 
 
