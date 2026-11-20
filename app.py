@@ -600,6 +600,43 @@ def choose_pairs(players: list[Player], previous_byes: dict[int, int], rng: rand
     return pairs, bye
 
 
+def preview_bracket(players, tournament):
+    """Prévia com posições fixas até a capacidade da chave mudar (2, 4, 8...).
+
+    Os primeiros jogadores ocupam vagas únicas; cada nova inscrição preenche
+    a vaga de adversário mais próximo em rating, sem criar novas chaves.
+    Os adversários oficiais são sorteados somente após encerrar inscrições.
+    """
+    n = len(players)
+    if n < 2:
+        return {'matches': [], 'pairs': [], 'byes': [], 'field_size': 0,
+                'first_round_matches': 0}
+    field_size = 1 << (n - 1).bit_length()
+    slots_number = field_size // 2
+    rng = random.Random(int(hashlib.sha256(
+        f'{tournament.id}:{tournament.title}:vagas'.encode()).hexdigest()[:16], 16))
+    anchors = list(players[:slots_number])
+    rng.shuffle(anchors)
+    slots = [{'p1': p.id, 'p2': None, 'status': 'bye', 'order': i + 1}
+             for i, p in enumerate(anchors)]
+    indexed = {p.id: p for p in players}
+    speed = speed_for_clock(tournament.minutes, tournament.increment)
+    for extra in players[slots_number:]:
+        open_indexes = [i for i, slot in enumerate(slots) if slot['p2'] is None]
+        best = min(open_indexes, key=lambda i: (
+            abs(pairing_rating(indexed[slots[i]['p1']], speed) -
+                pairing_rating(extra, speed)), i))
+        slots[best]['p2'] = extra.id
+        slots[best]['status'] = 'pending'
+    return {
+        'matches': slots,
+        'pairs': [[slot['p1'], slot['p2']] for slot in slots if slot['p2']],
+        'byes': [slot['p1'] for slot in slots if not slot['p2']],
+        'field_size': field_size,
+        'first_round_matches': slots_number,
+    }
+
+
 def bye_counts(db):
     counts = defaultdict(int)
     for m in db.scalars(select(Match).where(Match.status == "bye")):
@@ -872,12 +909,7 @@ def preview():
         if t.status != 'registration':
             return {"pairs": [], "byes": []}
         players = db.scalars(select(Player).order_by(Player.id)).all()
-        if len(players) < 2:
-            return {"pairs": [], "byes": []}
-        # Mesmo conjunto de inscritos => prévia estável, mas cada nova inscrição muda a prévia.
-        seed = int(hashlib.sha256((','.join(str(p.id) for p in players)+'preview').encode()).hexdigest()[:16], 16)
-        pairs, bye = choose_pairs(players, {}, random.Random(seed), speed_for_clock(t.minutes, t.increment))
-        return {"pairs": [[a.id, b.id] for a, b in pairs], "byes": [p.id for p in bye]}
+        return preview_bracket(players, t)
 
 
 @app.post('/api/register', status_code=201)
