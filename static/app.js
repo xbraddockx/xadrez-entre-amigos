@@ -186,9 +186,9 @@ function treePlayer(p,match,ghost=false){
 }
 function treeMatch(match,index,isPreview=false){
  const p1=nameFor(match?.p1),p2=nameFor(match?.p2);
- const isBye=!isPreview&&match&&match.status==='bye';
- const s=isPreview?'Prévia':!match?'A definir':match.source==='disqualification'?'Desclassificação':({pending:'Aguardando',draw_pending:'Desempate',complete:'Concluído',wo:'W.O.',double_wo:'W.O. duplo',bye:'Folga',dq:'Desclassificação'}[match.status]||'Aguardando');
- let html='<article class="tree-match"><div class="tree-match-head"><span>CONFRONTO '+(index+1)+'</span><span class="tree-state '+((match?.status==='complete'||match?.status==='wo')?'state-won':'')+'">'+s+'</span></div>';
+ const isBye=match?.status==='bye';
+ const s=isPreview?(isBye?'Folga provisória':'Prévia'):!match?'A definir':match.source==='disqualification'?'Desclassificação':({pending:'Aguardando',draw_pending:'Desempate',complete:'Concluído',wo:'W.O.',double_wo:'W.O. duplo',bye:'Folga',dq:'Desclassificação'}[match.status]||'Aguardando');
+ let html='<article class="tree-match"><div class="tree-match-head"><span>'+(isBye?'VAGA ':'CONFRONTO ')+(index+1)+'</span><span class="tree-state '+((match?.status==='complete'||match?.status==='wo')?'state-won':'')+'">'+s+'</span></div>';
  html+=treePlayer(p1,match,isPreview);
  html+=isBye?'<div class="tree-player tree-player-empty"><span class="tree-avatar">↗</span><span class="tree-player-meta"><strong>Classificado por folga</strong><small>Sem adversário nesta rodada</small></span></div>':treePlayer(p2,match,isPreview);
  if(match?.game_url)html+='<a class="tree-link" target="_blank" rel="noopener noreferrer" href="'+esc(match.game_url)+'">Abrir partida no Lichess ↗</a>';
@@ -197,43 +197,83 @@ function treeMatch(match,index,isPreview=false){
 }
 function renderBracket(){
  if(!site)return;
- const area=$('#bracket-area'),isPreview=site.status==='registration',r=site.round||0;
- const groups={};(site.matches||[]).forEach(m=>(groups[m.round]??=[]).push(m));
+ const area=$('#bracket-area'),isPreview=site.status==='registration';
+ const groups={};
+ (site.matches||[]).forEach(m=>(groups[m.round]??=[]).push(m));
  if(isPreview&&site.players.length<2){
-  area.innerHTML='<div class="panel bracket-empty"><div class="empty"><span class="empty-mark">♜</span><strong>Aguardando inscrições</strong><p>Os confrontos aparecerão a partir de dois jogadores.</p></div></div>';return;
+  area.innerHTML='<div class="panel bracket-empty"><div class="empty"><span class="empty-mark">♜</span><strong>Aguardando inscrições</strong><p>São necessários apenas dois jogadores para abrir a primeira chave.</p></div></div>';
+  $('#bracket-subtitle').textContent='O chaveamento será preenchido com novas inscrições.';
+  return;
  }
  if(isPreview){
-  const pm=[...(preview.pairs||[]).map(([p1,p2])=>({p1,p2,status:'pending'})),...(preview.byes||[]).map(p1=>({p1,p2:null,status:'bye'}))];
-  groups[1]=pm;
+  // A API conserva as posições das vagas e preenche as folgas, sem deslocar
+  // confrontos já exibidos na mesma faixa de capacidade (4, 8, 16, ...).
+  groups[1]=Array.isArray(preview.matches)?preview.matches:
+    [...(preview.pairs||[]).map(([p1,p2])=>({p1,p2,status:'pending'})),
+     ...(preview.byes||[]).map(p1=>({p1,p2:null,status:'bye'}))];
  }
  const mainRounds=Math.max(1,Math.ceil(Math.log2(Math.max(2,site.players.length))));
  const maxRounds=Math.max(mainRounds,...Object.keys(groups).map(Number));
  const firstCount=Math.max(1,groups[1]?.length||Math.ceil(site.players.length/2));
  const title=site.settings?.title||'Copa Mata-Mata';
  const trophy='<img src="/static/trophy.svg" class="tree-trophy" alt="Troféu da final" loading="lazy"/>';
+ const pairsCount=(groups[1]||[]).filter(m=>m?.p1&&m?.p2).length;
+ const byesCount=(groups[1]||[]).filter(m=>m?.p1&&!m?.p2).length;
+ if(isPreview){
+  // Somente classificados por folga têm vaga conhecida na fase seguinte.
+  // Os demais resultados permanecem indefinidos até a disputa.
+  let known=(groups[1]||[]).map(m=>m?.p1&&!m?.p2?m.p1:null);
+  for(let round=2;round<=maxRounds;round++){
+   const projected=[];
+   const nextKnown=[];
+   for(let i=0;i<Math.ceil(known.length/2);i++){
+    const first=known[2*i]||null,second=known[2*i+1]||null;
+    projected.push({p1:first,p2:second,status:'pending',order:i+1});
+    // Ambos precisam disputar a fase; ninguém avança automaticamente
+    // quando existe um participante ainda indefinido no outro caminho.
+    nextKnown.push(null);
+   }
+   groups[round]=projected;
+   known=nextKnown;
+  }
+ }
  let html='';
  if(site.status==='active')html+='<div class="deadline-note"><span><strong>Rodada '+site.round+'</strong> · Contato até o '+(site.settings?.contact_day??2)+'º dia.</span><span><strong>Prazo final:</strong> '+esc(localDate(site.deadline))+'</span></div>';
- if(isPreview)html+='<div class="deadline-note"><span><strong>Sorteio provisório.</strong> Os adversários podem mudar até o início do torneio.</span><span>'+site.players.length+' inscritos</span></div>';
+ if(isPreview){
+  const field=preview.field_size||(firstCount*2);
+  const msg='<strong>'+site.players.length+' jogadores · chave de '+field+' vagas.</strong> '+pairsCount+' partida(s) inicial(is) e '+byesCount+' folga(s) provisória(s). <strong>As inscrições podem ser encerradas agora.</strong> Não é necessário completar '+field+' jogadores.';
+  html+='<div class="deadline-note bracket-capacity-note"><span>'+msg+'</span></div>';
+  html+='<div class="deadline-note"><span><strong>Prévia de ocupação:</strong> novos jogadores preenchem vagas de adversários ainda livres. O sorteio oficial das cores e confrontos acontece ao iniciar o torneio.</span></div>';
+ }
  if(site.status==='finished'){
   const champion=nameFor(site.champion_id);
-  html+='<div class="champion"><div><small>CAMPEÃO DO TORNEIO</small><h3>'+esc(champion?.name||'Sem campeão')+'</h3><span>'+(champion?'@'+esc(champion.nick)+' · '+esc(rating(champion))+' Rapid':'Nenhum classificado na final')+'</span></div>'+trophy+'</div>';
+  html+='<div class="champion"><div><small>CAMPEÃO DO TORNEIO</small><h3>'+esc(champion?.name||'Sem campeão')+'</h3><span>'+(champion?'@'+esc(champion.nick)+' · '+esc(rating(champion))+' '+esc(speedName()):'Nenhum classificado na final')+'</span></div>'+trophy+'</div>';
  }
  html+='<div class="tree-intro"><span class="tree-legend"><i></i> Jogador classificado <span class="tree-legend-dot">•</span> Pontuação: 1 vitória · 1/2 empate · 0 derrota</span><span class="tree-legend">Toque em qualquer jogador para ver seu histórico.</span></div>';
  html+='<div class="bracket-scroll tree-scroller" tabindex="0" aria-label="Chaveamento horizontal, role para ver as fases"><div class="tournament-tree">';
  for(let round=1;round<=maxRounds;round++){
   const played=groups[round]||[];
-  const available=played.length>0;
-  const items=available?played:Array.from({length:Math.max(1,Math.ceil(firstCount/Math.pow(2,round-1)))},()=>null);
+  const expectedSlots=Math.max(1,Math.ceil(firstCount/Math.pow(2,round-1)));
+  const items=Array.from({length:expectedSlots},()=>null);
+  played.forEach((m,i)=>{
+   const pos=(m?.order||i+1)-1;
+   if(pos>=0&&pos<items.length)items[pos]=m;
+  });
   const final=round===maxRounds;
-  html+='<section class="tree-round '+(final?'tree-final':'')+'"><div class="tree-round-header"><span>'+(final?'GRANDE FINAL':round+'ª RODADA')+'</span><strong>'+(final?'Decisão':available?played.length+' confrontos':'Classificados')+'</strong></div>';
-  if(final)html+='<div class="tree-trophy-box">'+trophy+'<span>'+ (site.status==='finished'?'TROFÉU DO CAMPEÃO':'UM ÚNICO CAMPEÃO')+'</span></div>';
-  html+='<div class="tree-round-content">'+items.map((m,i)=>treeMatch(m,i,isPreview&&round===1)).join('')+'</div>';
+  const subtitle=final?'Decisão':round===1?
+    (pairsCount+' partida(s) · '+byesCount+' folga(s)'):
+    (isPreview?'Caminho à final':played.some(m=>m?.p1)?'Classificados':'Aguardando vencedores');
+  html+='<section class="tree-round '+(final?'tree-final':'')+'"><div class="tree-round-header"><span>'+(final?'GRANDE FINAL':round+'ª RODADA')+'</span><strong>'+subtitle+'</strong></div>';
+  if(final)html+='<div class="tree-trophy-box">'+trophy+'<span>'+(site.status==='finished'?'TROFÉU DO CAMPEÃO':'UM ÚNICO CAMPEÃO')+'</span></div>';
+  html+='<div class="tree-round-content">'+items.map((m,i)=>treeMatch(m,i,isPreview)).join('')+'</div>';
   if(!final)html+='<span class="tree-flow-arrow" aria-hidden="true">→</span>';
   html+='</section>';
  }
- html+='</div></div><p class="tree-mobile-tip">Arraste horizontalmente para acompanhar as rodadas. Os confrontos das próximas fases serão sorteados entre os classificados, priorizando ratings próximos.</p>';
+ html+='</div></div><p class="tree-mobile-tip">Deslize horizontalmente para acompanhar o caminho de cada vaga até a final. As fases seguintes aproveitam as mesmas posições da chave.</p>';
  area.innerHTML=html;
- $('#bracket-subtitle').textContent=isPreview?'Prévia atualizada com os inscritos. A chave oficial começa após o encerramento das inscrições.':'Chaveamento e resultados atualizados conforme a organização registra as partidas.';
+ $('#bracket-subtitle').textContent=isPreview?
+  'Novas inscrições preenchem vagas disponíveis. A chave oficial é definida ao encerrar as inscrições.':
+  'Chave oficial: cada vencedor avança pelo seu caminho até a final, sem novos confrontos paralelos.';
 }
 
 function colorOf(m,id){return m?.white_id ? (m.white_id===id?'brancas':'pretas') : null}
